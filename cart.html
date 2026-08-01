@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Cart — Calista</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner container">
+    <a href="/" class="logo">Calista</a>
+    <ul class="nav-links"><li><a href="/index.html">Continue Shopping</a></li></ul>
+    <div class="header-icons"><a href="/cart.html">Cart <span class="cart-count">0</span></a></div>
+  </div>
+</header>
+
+<div class="cart-page">
+  <h1 class="display" style="font-size:28px; margin-bottom:24px;">Your Cart</h1>
+  <div id="cart-root"></div>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
+</footer>
+
+<script src="/app.js"></script>
+<script>
+function render() {
+  const cart = getCart();
+  const root = document.getElementById('cart-root');
+
+  if (cart.length === 0) {
+    root.innerHTML = `<div class="empty-state">Your cart is empty. <a href="/index.html">Start shopping</a></div>`;
+    return;
+  }
+
+  root.innerHTML = cart.map((item, i) => `
+    <div class="cart-row">
+      <img src="${item.image_url}" alt="${item.name}">
+      <div>
+        <div class="product-name">${item.name}</div>
+        <div style="font-size:13px; color:var(--charcoal-soft);">Size: ${item.size}</div>
+        <div style="font-size:13px; margin-top:4px;">${money(item.price)}</div>
+      </div>
+      <input class="qty-input" type="number" min="1" value="${item.qty}" data-index="${i}">
+      <span class="remove-link" data-index="${i}">Remove</span>
+    </div>
+  `).join('') + `
+    <div class="cart-total-row">
+      <span>Total</span>
+      <span>${money(cartTotal(cart))}</span>
+    </div>
+    <a href="/checkout.html" class="btn" style="width:100%; text-align:center; box-sizing:border-box;">Proceed to Checkout</a>
+  `;
+
+  root.querySelectorAll('.qty-input').forEach(input => {
+    input.addEventListener('change', (e) => {
+      updateCartQty(Number(e.target.dataset.index), Number(e.target.value));
+      render();
+    });
+  });
+  root.querySelectorAll('.remove-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      removeFromCart(Number(e.target.dataset.index));
+      render();
+    });
+  });
+}
+render();
+</script>
+</body>
+</html>

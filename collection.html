@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unstitched Lawn — Calista</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="announce-bar">Free Delivery Over Rs. 3,000 &nbsp;|&nbsp; Cash on Delivery Available</div>
+  <div class="header-inner container">
+    <a href="/" class="logo">Calista</a>
+    <ul class="nav-links">
+      <li><a href="/index.html">Home</a></li>
+      <li><a href="/collection.html">Unstitched Lawn</a></li>
+      <li><a href="/collection.html">Sale</a></li>
+    </ul>
+    <div class="header-icons">
+      <a href="/cart.html">Cart <span class="cart-count">0</span></a>
+    </div>
+  </div>
+</header>
+
+<div class="breadcrumb container">
+  <a href="/index.html">Home</a> <span>/</span> <span>Unstitched Lawn</span>
+</div>
+
+<div class="collection-head container">
+  <h1>Unstitched Lawn</h1>
+  <p>Embroidered, printed and luxury lawn — three-piece suits ready to stitch your way.</p>
+</div>
+
+<div class="collection-layout container">
+
+  <aside class="filters" id="filters">
+    <div class="filter-group">
+      <h4>Fabric</h4>
+      <label><input type="checkbox" class="f-fabric" value="Lawn" checked> Lawn</label>
+      <label><input type="checkbox" class="f-fabric" value="Chiffon" checked> Chiffon</label>
+      <label><input type="checkbox" class="f-fabric" value="Khaddar" checked> Khaddar</label>
+      <label><input type="checkbox" class="f-fabric" value="Silk" checked> Silk</label>
+    </div>
+    <div class="filter-group">
+      <h4>Price</h4>
+      <label><input type="checkbox" class="f-price" value="0-5000" checked> Under Rs. 5,000</label>
+      <label><input type="checkbox" class="f-price" value="5000-8000" checked> Rs. 5,000 – 8,000</label>
+      <label><input type="checkbox" class="f-price" value="8000-999999" checked> Above Rs. 8,000</label>
+    </div>
+    <div class="filter-group">
+      <h4>Size</h4>
+      <label><input type="checkbox" class="f-size" value="S" checked> S</label>
+      <label><input type="checkbox" class="f-size" value="M" checked> M</label>
+      <label><input type="checkbox" class="f-size" value="L" checked> L</label>
+      <label><input type="checkbox" class="f-size" value="XL" checked> XL</label>
+    </div>
+    <button class="clear-filters" id="clear-filters">Clear all filters</button>
+  </aside>
+
+  <div class="collection-main">
+    <div class="collection-toolbar">
+      <span id="result-count" class="result-count"></span>
+      <select id="sort-select" class="sort-select">
+        <option value="best">Sort: Best Selling</option>
+        <option value="price-asc">Price: Low to High</option>
+        <option value="price-desc">Price: High to Low</option>
+        <option value="newest">Newest First</option>
+      </select>
+    </div>
+
+    <div class="product-grid" id="product-grid"></div>
+
+    <div style="text-align:center; margin-top:36px;">
+      <button class="btn btn-outline-dark" id="load-more" style="display:none;">Load More</button>
+    </div>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div>
+      <div class="logo" style="margin-bottom:12px;">Calista</div>
+      <p style="color:var(--ivory-warm); font-size:14px; max-width:320px;">
+        Premium unstitched and ready-to-wear fabrics, delivered across Pakistan with cash on delivery.
+      </p>
+    </div>
+    <div>
+      <h4>Shop</h4>
+      <ul><li><a href="/collection.html">Unstitched Lawn</a></li><li><a href="/cart.html">Cart</a></li></ul>
+    </div>
+    <div>
+      <h4>Support</h4>
+      <ul><li><a href="#">Return &amp; Exchange</a></li><li><a href="#">Contact Us</a></li></ul>
+    </div>
+  </div>
+  <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
+</footer>
+
+<script src="/app.js"></script>
+<script>
+let ALL_PRODUCTS = [];
+let VISIBLE_COUNT = 6;
+const PAGE_SIZE = 6;
+
+function inPriceBand(price, band) {
+  const [min, max] = band.split('-').map(Number);
+  return price >= min && price <= max;
+}
+
+function getFiltered() {
+  const fabrics = [...document.querySelectorAll('.f-fabric:checked')].map(c => c.value);
+  const priceBands = [...document.querySelectorAll('.f-price:checked')].map(c => c.value);
+  const sizes = [...document.querySelectorAll('.f-size:checked')].map(c => c.value);
+
+  let list = ALL_PRODUCTS.filter(p => {
+    const effectivePrice = p.sale_price || p.price;
+    const fabricOk = fabrics.includes(p.fabric);
+    const priceOk = priceBands.some(band => inPriceBand(effectivePrice, band));
+    const sizeOk = p.sizes.split(',').some(s => sizes.includes(s));
+    return fabricOk && priceOk && sizeOk;
+  });
+
+  const sort = document.getElementById('sort-select').value;
+  if (sort === 'price-asc') list.sort((a, b) => (a.sale_price || a.price) - (b.sale_price || b.price));
+  if (sort === 'price-desc') list.sort((a, b) => (b.sale_price || b.price) - (a.sale_price || a.price));
+  if (sort === 'newest') list.sort((a, b) => b.id - a.id);
+
+  return list;
+}
+
+function cardHtml(p) {
+  const sizes = p.sizes.split(',');
+  return `
+    <div class="product-card" data-id="${p.id}">
+      <a class="product-thumb" href="/product.html?slug=${p.slug}">
+        <img src="${p.image_url}" alt="${p.name}">
+        ${p.image_url_2 ? `<img class="img-alt" src="${p.image_url_2}" alt="${p.name}">` : ''}
+        ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
+      </a>
+      <div class="product-info">
+        <a href="/product.html?slug=${p.slug}" class="product-name">${p.name}</a>
+        <div class="product-price">${priceHtml(p)}</div>
+        <div class="quick-add-row">
+          <span class="quick-add-label">Quick add</span>
+          <div class="quick-size-chips">
+            ${sizes.map(s => `<button class="qsize-btn" data-id="${p.id}" data-size="${s}">${s}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function render() {
+  const filtered = getFiltered();
+  const grid = document.getElementById('product-grid');
+  const toShow = filtered.slice(0, VISIBLE_COUNT);
+
+  if (toShow.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">No products match these filters. <a href="#" id="reset-link">Clear filters</a></div>`;
+    document.getElementById('reset-link')?.addEventListener('click', (e) => { e.preventDefault(); resetFilters(); });
+  } else {
+    grid.innerHTML = toShow.map(cardHtml).join('');
+  }
+
+  document.getElementById('result-count').textContent = `Showing ${toShow.length} of ${filtered.length} products`;
+  document.getElementById('load-more').style.display = VISIBLE_COUNT < filtered.length ? 'inline-block' : 'none';
+
+  grid.querySelectorAll('.qsize-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const product = ALL_PRODUCTS.find(p => p.id === Number(btn.dataset.id));
+      addToCart(product, btn.dataset.size, 1);
+      showToast(`Added — ${product.name} (${btn.dataset.size})`);
+      const original = btn.textContent;
+      btn.textContent = '✓';
+      setTimeout(() => { btn.textContent = original; }, 900);
+    });
+  });
+}
+
+function resetFilters() {
+  document.querySelectorAll('.filters input[type=checkbox]').forEach(c => c.checked = true);
+  document.getElementById('sort-select').value = 'best';
+  VISIBLE_COUNT = PAGE_SIZE;
+  render();
+}
+
+document.getElementById('filters').addEventListener('change', () => { VISIBLE_COUNT = PAGE_SIZE; render(); });
+document.getElementById('sort-select').addEventListener('change', render);
+document.getElementById('clear-filters').addEventListener('click', resetFilters);
+document.getElementById('load-more').addEventListener('click', () => { VISIBLE_COUNT += PAGE_SIZE; render(); });
+
+(async function init() {
+  ALL_PRODUCTS = await getProducts();
+
+  const params = new URLSearchParams(location.search);
+  const fabricParam = params.get('fabric');
+  if (fabricParam) {
+    document.querySelectorAll('.f-fabric').forEach(c => {
+      c.checked = c.value.toLowerCase() === fabricParam.toLowerCase();
+    });
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

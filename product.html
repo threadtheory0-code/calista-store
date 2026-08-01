@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product — Calista</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner container">
+    <a href="/" class="logo">Calista</a>
+    <ul class="nav-links">
+      <li><a href="/collection.html">Unstitched Lawn</a></li>
+    </ul>
+    <div class="header-icons">
+      <a href="/cart.html">Cart <span class="cart-count">0</span></a>
+    </div>
+  </div>
+</header>
+
+<div id="product-root" class="product-detail">
+  <!-- filled by script -->
+</div>
+
+<footer class="site-footer">
+  <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
+</footer>
+
+<script src="/app.js"></script>
+<script>
+(async function () {
+  const params = new URLSearchParams(location.search);
+  const slug = params.get('slug');
+  const product = await getProduct(slug);
+  const root = document.getElementById('product-root');
+
+  if (!product) {
+    root.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Product not found. <a href="/index.html">Back to shop</a></div>`;
+    return;
+  }
+
+  const sizes = product.sizes.split(',');
+  let selectedSize = sizes[0];
+
+  root.innerHTML = `
+    <div class="product-gallery">
+      <img src="${product.image_url}" alt="${product.name}">
+      ${product.image_url_2 ? `<img src="${product.image_url_2}" alt="${product.name}">` : ''}
+    </div>
+    <div class="product-copy">
+      <span class="fabric-tag">${product.fabric || ''}</span>
+      <h1>${product.name}</h1>
+      <div class="price-row">${priceHtml(product)}</div>
+      <p class="desc">${product.description || ''}</p>
+      <div>
+        <label style="font-size:13px; color:var(--charcoal-soft); display:block; margin-bottom:8px;">Size</label>
+        <div class="size-picker" id="size-picker">
+          ${sizes.map((s, i) => `<button class="size-btn ${i === 0 ? 'selected' : ''}" data-size="${s}">${s}</button>`).join('')}
+        </div>
+      </div>
+      <button class="btn" id="add-btn" style="width:100%;">Add to Cart</button>
+    </div>
+  `;
+
+  document.getElementById('size-picker').addEventListener('click', (e) => {
+    if (!e.target.matches('.size-btn')) return;
+    document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('selected'));
+    e.target.classList.add('selected');
+    selectedSize = e.target.dataset.size;
+  });
+
+  document.getElementById('add-btn').addEventListener('click', () => {
+    addToCart(product, selectedSize, 1);
+    showToast(`Added — ${product.name} (${selectedSize})`);
+    document.getElementById('add-btn').textContent = 'Added ✓';
+    setTimeout(() => { document.getElementById('add-btn').textContent = 'Add to Cart'; }, 1200);
+  });
+})();
+</script>
+</body>
+</html>

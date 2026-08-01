@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Checkout — Calista</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner container">
+    <a href="/" class="logo">Calista</a>
+    <ul class="nav-links"><li><a href="/cart.html">Back to Cart</a></li></ul>
+    <div class="header-icons"><a href="/cart.html">Cart <span class="cart-count">0</span></a></div>
+  </div>
+</header>
+
+<div class="checkout-page">
+  <h1 class="display" style="font-size:28px; margin-bottom:24px;">Checkout</h1>
+  <div id="checkout-root"></div>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
+</footer>
+
+<script src="/app.js"></script>
+<script>
+function renderSummary() {
+  const cart = getCart();
+  return `
+    <div class="order-summary">
+      ${cart.map(i => `<div class="row"><span>${i.name} (${i.size}) x${i.qty}</span><span>${money(i.price * i.qty)}</span></div>`).join('')}
+      <div class="row" style="font-weight:600; border-top:1px solid var(--line); margin-top:8px; padding-top:10px;">
+        <span>Total (Cash on Delivery)</span><span>${money(cartTotal(cart))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function render() {
+  const cart = getCart();
+  const root = document.getElementById('checkout-root');
+
+  if (cart.length === 0) {
+    root.innerHTML = `<div class="empty-state">Your cart is empty. <a href="/index.html">Start shopping</a></div>`;
+    return;
+  }
+
+  root.innerHTML = renderSummary() + `
+    <form class="checkout-form" id="checkout-form">
+      <div>
+        <label>Full Name</label>
+        <input type="text" name="customer_name" required>
+      </div>
+      <div>
+        <label>Phone Number</label>
+        <input type="tel" name="phone" placeholder="03xx-xxxxxxx" required>
+      </div>
+      <div>
+        <label>Delivery Address</label>
+        <textarea name="address" rows="3" required></textarea>
+      </div>
+      <div>
+        <label>City</label>
+        <input type="text" name="city" required>
+      </div>
+      <button type="submit" class="btn" id="submit-btn">Place Order — Cash on Delivery</button>
+      <div id="checkout-msg" style="font-size:13px; margin-top:8px;"></div>
+    </form>
+  `;
+
+  document.getElementById('checkout-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const btn = document.getElementById('submit-btn');
+    const msg = document.getElementById('checkout-msg');
+    btn.disabled = true;
+    btn.textContent = 'Placing order...';
+
+    const payload = {
+      customer_name: form.customer_name.value,
+      phone: form.phone.value,
+      address: form.address.value,
+      city: form.city.value,
+      items: cart,
+      total: cartTotal(cart)
+    };
+
+    try {
+      const res = await fetch('/api/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error('Order failed');
+      localStorage.removeItem('kapra_cart');
+      root.innerHTML = `<div class="empty-state">
+        <h2 class="display" style="margin-bottom:10px;">Order Placed ✓</h2>
+        <p>Thank you! We'll call you shortly to confirm your order.</p>
+        <a href="/index.html" class="btn" style="margin-top:20px;">Continue Shopping</a>
+      </div>`;
+      updateCartBadge();
+    } catch (err) {
+      msg.textContent = 'Something went wrong — the order API may not be connected yet. See setup instructions.';
+      msg.style.color = 'var(--maghi-red)';
+      btn.disabled = false;
+      btn.textContent = 'Place Order — Cash on Delivery';
+    }
+  });
+}
+render();
+</script>
+</body>
+</html>

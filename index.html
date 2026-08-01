@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calista — Embroidered Lawn &amp; Chiffon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="announce-bar">Free Delivery Over Rs. 3,000 &nbsp;|&nbsp; Cash on Delivery Available</div>
+  <div class="header-inner container">
+    <a href="/" class="logo">Calista</a>
+    <ul class="nav-links">
+      <li><a href="/collection.html">Unstitched Lawn</a></li>
+      <li><a href="/collection.html">New Arrivals</a></li>
+      <li><a href="/collection.html">Sale</a></li>
+    </ul>
+    <div class="header-icons">
+      <a href="/cart.html">Cart <span class="cart-count">0</span></a>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-eyebrow">New Season</div>
+  <h1>Embroidery that speaks<br>before you do.</h1>
+  <p>Handpicked lawn, chiffon and khaddar — stitched with detail worth a second look.</p>
+  <a href="#bestsellers" class="btn">Shop Collection</a>
+</section>
+<div class="stitch-divider"></div>
+
+<section class="section" style="padding-bottom:0;">
+  <div class="container">
+    <div class="section-head">
+      <h2>Shop by Fabric</h2>
+      <div class="stitch-divider"></div>
+    </div>
+    <div class="category-tiles">
+      <a class="category-tile" href="/collection.html?fabric=Lawn">
+        <img src="/images/placeholder-1.svg" alt="Lawn">
+        <span class="tile-label">Lawn</span>
+      </a>
+      <a class="category-tile" href="/collection.html?fabric=Chiffon">
+        <img src="/images/placeholder-2.svg" alt="Chiffon">
+        <span class="tile-label">Chiffon</span>
+      </a>
+      <a class="category-tile" href="/collection.html?fabric=Khaddar">
+        <img src="/images/placeholder-3.svg" alt="Khaddar">
+        <span class="tile-label">Khaddar</span>
+      </a>
+      <a class="category-tile" href="/collection.html?fabric=Silk">
+        <img src="/images/placeholder-9.svg" alt="Silk">
+        <span class="tile-label">Silk</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="bestsellers">
+  <div class="container">
+    <div class="section-head">
+      <h2>Best Sellers</h2>
+      <div class="stitch-divider"></div>
+    </div>
+    <div class="product-grid" id="product-grid">
+      <!-- filled by app.js -->
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="footer-grid">
+    <div>
+      <div class="logo" style="margin-bottom:12px;">Calista</div>
+      <p style="color:var(--ivory-warm); font-size:14px; max-width:320px;">
+        Premium unstitched and ready-to-wear fabrics, delivered across Pakistan with cash on delivery.
+      </p>
+    </div>
+    <div>
+      <h4>Shop</h4>
+      <ul>
+        <li><a href="/index.html">New Arrivals</a></li>
+        <li><a href="/cart.html">Cart</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Support</h4>
+      <ul>
+        <li><a href="#">Return &amp; Exchange</a></li>
+        <li><a href="#">Contact Us</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
+</footer>
+
+<script src="/app.js"></script>
+<script>
+(async function () {
+  const products = await getProducts();
+  const grid = document.getElementById('product-grid');
+  grid.innerHTML = products.map(p => `
+    <a class="product-card" href="/product.html?slug=${p.slug}">
+      <div class="product-thumb">
+        <img src="${p.image_url}" alt="${p.name}">
+        ${p.image_url_2 ? `<img class="img-alt" src="${p.image_url_2}" alt="${p.name}">` : ''}
+        ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
+      </div>
+      <div class="product-info">
+        <div class="product-name">${p.name}</div>
+        <div class="product-price">${priceHtml(p)}</div>
+      </div>
+    </a>
+  `).join('');
+})();
+</script>
+</body>
+</html>
