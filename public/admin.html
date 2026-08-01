@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Calista</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner container">
+    <a href="/" class="logo">Calista Admin</a>
+    <div class="header-icons"><a href="/index.html">View Store</a></div>
+  </div>
+</header>
+
+<div class="admin-wrap">
+  <div class="admin-tabs">
+    <button class="admin-tab active" data-tab="orders">Orders</button>
+    <button class="admin-tab" data-tab="products">Products</button>
+  </div>
+
+  <div id="tab-orders">
+    <div id="orders-root">Loading orders…</div>
+  </div>
+
+  <div id="tab-products" style="display:none;">
+    <h3 class="display" style="font-size:20px; margin-bottom:14px;">Add New Product</h3>
+    <form class="admin-form" id="product-form">
+      <div><label>Name</label><input name="name" required></div>
+      <div><label>Slug (URL-safe, unique)</label><input name="slug" required></div>
+      <div><label>Fabric</label><input name="fabric" placeholder="Lawn / Chiffon / Khaddar / Silk"></div>
+      <div><label>Sizes (comma separated)</label><input name="sizes" value="S,M,L,XL" required></div>
+      <div><label>Regular Price (Rs.)</label><input name="price" type="number" required></div>
+      <div><label>Sale Price (Rs., optional)</label><input name="sale_price" type="number"></div>
+      <div><label>Stock</label><input name="stock" type="number" value="10" required></div>
+      <div><label>Image URL</label><input name="image_url" value="/images/placeholder-1.svg" required></div>
+      <div><label>Image URL 2 (hover, optional)</label><input name="image_url_2" value="/images/placeholder-1b.svg"></div>
+      <div class="full"><label>Description</label><textarea name="description" rows="2"></textarea></div>
+      <button type="submit" class="btn">Add Product</button>
+      <div id="product-form-msg" class="full" style="font-size:13px;"></div>
+    </form>
+
+    <h3 class="display" style="font-size:20px; margin-bottom:14px;">All Products</h3>
+    <div id="products-root">Loading products…</div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+<script>
+document.querySelectorAll('.admin-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-orders').style.display = tab.dataset.tab === 'orders' ? '' : 'none';
+    document.getElementById('tab-products').style.display = tab.dataset.tab === 'products' ? '' : 'none';
+  });
+});
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Request failed');
+  }
+  return res.json();
+}
+
+/* ---------------- Orders ---------------- */
+async function loadOrders() {
+  const root = document.getElementById('orders-root');
+  try {
+    const orders = await api('/api/admin/orders');
+    if (orders.length === 0) {
+      root.innerHTML = '<p style="color:var(--charcoal-soft);">No orders yet.</p>';
+      return;
+    }
+    root.innerHTML = `
+      <table class="admin-table">
+        <thead><tr>
+          <th>#</th><th>Customer</th><th>Phone</th><th>Address</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th>
+        </tr></thead>
+        <tbody>
+          ${orders.map(o => {
+            let items = [];
+            try { items = JSON.parse(o.items_json); } catch (e) {}
+            return `
+              <tr>
+                <td>${o.id}</td>
+                <td>${o.customer_name}</td>
+                <td>${o.phone}</td>
+                <td>${o.address}, ${o.city}</td>
+                <td class="admin-items-list">${items.map(i => `${i.name} (${i.size}) x${i.qty}`).join('<br>')}</td>
+                <td>${money(o.total)}</td>
+                <td>
+                  <select class="admin-status-select" data-id="${o.id}">
+                    ${['pending','confirmed','shipped','delivered','cancelled'].map(s =>
+                      `<option value="${s}" ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
+                  </select>
+                </td>
+                <td>${o.created_at || ''}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+    root.querySelectorAll('.admin-status-select').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        try {
+          await api('/api/admin/orders', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: Number(sel.dataset.id), status: sel.value })
+          });
+        } catch (e) {
+          alert('Failed to update status: ' + e.message);
+        }
+      });
+    });
+  } catch (e) {
+    root.innerHTML = `<p style="color:var(--gold);">Could not load orders: ${e.message}</p>`;
+  }
+}
+
+/* ---------------- Products ---------------- */
+async function loadProducts() {
+  const root = document.getElementById('products-root');
+  try {
+    const products = await api('/api/admin/products');
+    root.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Fabric</th><th>Price</th><th>Stock</th><th>Active</th><th></th></tr></thead>
+        <tbody>
+          ${products.map(p => `
+            <tr>
+              <td>${p.name}</td>
+              <td>${p.fabric || ''}</td>
+              <td>${priceHtml(p)}</td>
+              <td>${p.stock}</td>
+              <td>${p.is_active ? 'Yes' : 'No'}</td>
+              <td><button class="admin-delete-btn" data-id="${p.id}">Delete</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    root.querySelectorAll('.admin-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this product?')) return;
+        try {
+          await api('/api/admin/products?id=' + btn.dataset.id, { method: 'DELETE' });
+          loadProducts();
+        } catch (e) {
+          alert('Failed to delete: ' + e.message);
+        }
+      });
+    });
+  } catch (e) {
+    root.innerHTML = `<p style="color:var(--gold);">Could not load products: ${e.message}</p>`;
+  }
+}
+
+document.getElementById('product-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const msg = document.getElementById('product-form-msg');
+  const payload = {
+    name: form.name.value,
+    slug: form.slug.value,
+    fabric: form.fabric.value,
+    description: form.description.value,
+    price: Number(form.price.value),
+    sale_price: form.sale_price.value ? Number(form.sale_price.value) : null,
+    sizes: form.sizes.value,
+    image_url: form.image_url.value,
+    image_url_2: form.image_url_2.value,
+    stock: Number(form.stock.value)
+  };
+  try {
+    await api('/api/admin/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    msg.textContent = 'Product added ✓';
+    msg.style.color = 'var(--gold)';
+    form.reset();
+    form.sizes.value = 'S,M,L,XL';
+    loadProducts();
+  } catch (err) {
+    msg.textContent = 'Error: ' + err.message;
+    msg.style.color = 'var(--gold)';
+  }
+});
+
+loadOrders();
+loadProducts();
+</script>
+</body>
+</html>

@@ -20,10 +20,27 @@
       <li><a href="/collection.html">Sale</a></li>
     </ul>
     <div class="header-icons">
+      <button class="mobile-menu-toggle" id="mobile-menu-btn" aria-label="Open menu">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
       <a href="/cart.html">Cart <span class="cart-count">0</span></a>
     </div>
   </div>
 </header>
+
+<div class="mobile-nav-backdrop" id="mobile-nav-backdrop"></div>
+<nav class="mobile-nav-drawer" id="mobile-nav-drawer">
+  <div class="drawer-head">
+    <span class="logo">Calista</span>
+    <button class="drawer-close" id="mobile-nav-close" aria-label="Close menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <a href="/index.html">Home</a>
+  <a href="/collection.html">Unstitched Lawn</a>
+  <a href="/collection.html">Sale</a>
+  <a href="/cart.html">Cart</a>
+</nav>
 
 <div class="breadcrumb container">
   <a href="/index.html">Home</a> <span>/</span> <span>Unstitched Lawn</span>
@@ -36,7 +53,19 @@
 
 <div class="collection-layout container">
 
+  <button class="mobile-filter-btn" id="mobile-filter-btn">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>
+    Filters &amp; Sort
+  </button>
+  <div class="filters-backdrop" id="filters-backdrop"></div>
+
   <aside class="filters" id="filters">
+    <div class="filters-mobile-head">
+      <span class="display" style="font-size:18px;">Filters</span>
+      <button id="filters-close" aria-label="Close filters">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
     <div class="filter-group">
       <h4>Fabric</h4>
       <label><input type="checkbox" class="f-fabric" value="Lawn" checked> Lawn</label>
@@ -192,6 +221,18 @@ document.getElementById('filters').addEventListener('change', () => { VISIBLE_CO
 document.getElementById('sort-select').addEventListener('change', render);
 document.getElementById('clear-filters').addEventListener('click', resetFilters);
 document.getElementById('load-more').addEventListener('click', () => { VISIBLE_COUNT += PAGE_SIZE; render(); });
+
+(function initMobileFilters() {
+  const btn = document.getElementById('mobile-filter-btn');
+  const panel = document.getElementById('filters');
+  const backdrop = document.getElementById('filters-backdrop');
+  const closeBtn = document.getElementById('filters-close');
+  function openPanel() { panel.classList.add('open'); backdrop.classList.add('open'); }
+  function closePanel() { panel.classList.remove('open'); backdrop.classList.remove('open'); }
+  btn.addEventListener('click', openPanel);
+  closeBtn.addEventListener('click', closePanel);
+  backdrop.addEventListener('click', closePanel);
+})();
 
 (async function init() {
   ALL_PRODUCTS = await getProducts();

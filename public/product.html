@@ -17,10 +17,27 @@
       <li><a href="/collection.html">Unstitched Lawn</a></li>
     </ul>
     <div class="header-icons">
+      <button class="mobile-menu-toggle" id="mobile-menu-btn" aria-label="Open menu">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
       <a href="/cart.html">Cart <span class="cart-count">0</span></a>
     </div>
   </div>
 </header>
+
+<div class="mobile-nav-backdrop" id="mobile-nav-backdrop"></div>
+<nav class="mobile-nav-drawer" id="mobile-nav-drawer">
+  <div class="drawer-head">
+    <span class="logo">Calista</span>
+    <button class="drawer-close" id="mobile-nav-close" aria-label="Close menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <a href="/index.html">Home</a>
+  <a href="/collection.html">Unstitched Lawn</a>
+  <a href="/collection.html">Sale</a>
+  <a href="/cart.html">Cart</a>
+</nav>
 
 <div id="product-root" class="product-detail">
   <!-- filled by script -->
@@ -29,6 +46,11 @@
 <footer class="site-footer">
   <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
 </footer>
+
+<div class="sticky-atc" id="sticky-atc" style="display:none;">
+  <span class="sticky-price" id="sticky-price"></span>
+  <button class="btn" id="sticky-add-btn">Add to Cart</button>
+</div>
 
 <script src="/app.js"></script>
 <script>
@@ -73,11 +95,26 @@
     selectedSize = e.target.dataset.size;
   });
 
-  document.getElementById('add-btn').addEventListener('click', () => {
+  function addCurrentToCart() {
     addToCart(product, selectedSize, 1);
     showToast(`Added — ${product.name} (${selectedSize})`);
+  }
+
+  document.getElementById('add-btn').addEventListener('click', () => {
+    addCurrentToCart();
     document.getElementById('add-btn').textContent = 'Added ✓';
     setTimeout(() => { document.getElementById('add-btn').textContent = 'Add to Cart'; }, 1200);
+  });
+
+  const stickyBar = document.getElementById('sticky-atc');
+  const stickyPrice = document.getElementById('sticky-price');
+  const stickyBtn = document.getElementById('sticky-add-btn');
+  stickyPrice.innerHTML = priceHtml(product);
+  stickyBar.style.display = '';
+  stickyBtn.addEventListener('click', () => {
+    addCurrentToCart();
+    stickyBtn.textContent = 'Added ✓';
+    setTimeout(() => { stickyBtn.textContent = 'Add to Cart'; }, 1200);
   });
 })();
 </script>

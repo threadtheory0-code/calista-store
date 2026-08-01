@@ -476,6 +476,125 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
   .category-tiles { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ---------- Mobile nav drawer ---------- */
+.mobile-menu-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--ivory);
+  cursor: pointer;
+  padding: 4px;
+  align-items: center;
+}
+.mobile-nav-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 998;
+}
+.mobile-nav-backdrop.open { display: block; }
+.mobile-nav-drawer {
+  position: fixed;
+  top: 0; right: 0;
+  width: 78%; max-width: 320px;
+  height: 100%;
+  background: var(--ivory);
+  z-index: 999;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  display: flex; flex-direction: column;
+  padding: 22px;
+  overflow-y: auto;
+}
+.mobile-nav-drawer.open { transform: translateX(0); }
+.mobile-nav-drawer .drawer-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 20px;
+}
+.mobile-nav-drawer .drawer-head .logo { color: var(--charcoal); font-size: 22px; }
+.mobile-nav-drawer .drawer-close {
+  background: none; border: none; cursor: pointer; color: var(--charcoal); padding: 4px;
+}
+.mobile-nav-drawer a {
+  display: block;
+  padding: 15px 2px;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+  color: var(--charcoal);
+}
+@media (max-width: 720px) {
+  .mobile-menu-toggle { display: inline-flex; }
+}
+
+/* ---------- Sticky add-to-cart (mobile, product page) ---------- */
+.sticky-atc {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--ivory);
+  border-top: 1px solid var(--line);
+  padding: 12px 16px;
+  z-index: 500;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.sticky-atc .sticky-price { font-family: var(--font-display); font-size: 17px; white-space: nowrap; }
+.sticky-atc button { flex: 1; }
+@media (max-width: 720px) {
+  .sticky-atc { display: flex; }
+  .product-detail { padding-bottom: 84px; }
+}
+
+/* ---------- Mobile filter drawer (collection page) ---------- */
+.mobile-filter-btn { display: none; }
+.filters-backdrop { display: none; }
+@media (max-width: 820px) {
+  .mobile-filter-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--ink-green); background: transparent; color: var(--ink-green);
+    padding: 9px 16px; font-size: 13px; cursor: pointer; margin-bottom: 16px;
+  }
+  .filters {
+    position: fixed; top: 0; right: 0; height: 100%; width: 82%; max-width: 320px;
+    background: var(--ivory); z-index: 999; overflow-y: auto;
+    transform: translateX(100%); transition: transform 0.25s ease;
+    border: none; box-shadow: -2px 0 16px rgba(0,0,0,0.18);
+  }
+  .filters.open { transform: translateX(0); }
+  .filters-backdrop.open { display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 998; }
+  .filters-mobile-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
+  }
+  .filters-mobile-head button { background: none; border: none; cursor: pointer; color: var(--charcoal); }
+}
+
+/* ---------- Admin panel ---------- */
+.admin-wrap { max-width: 1040px; margin: 0 auto; padding: 40px 24px 80px; }
+.admin-tabs { display: flex; gap: 8px; margin-bottom: 28px; border-bottom: 1px solid var(--line); }
+.admin-tab {
+  padding: 12px 20px; background: none; border: none; cursor: pointer;
+  font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--charcoal-soft);
+  border-bottom: 2px solid transparent;
+}
+.admin-tab.active { color: var(--ink-green-deep); border-bottom-color: var(--gold); }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th, .admin-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.admin-table th { text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: var(--charcoal-soft); }
+.admin-status-select { padding: 6px 8px; border: 1px solid var(--line); font-size: 12px; }
+.admin-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 36px; background: var(--ivory-warm); padding: 20px; }
+.admin-form .full { grid-column: 1 / -1; }
+.admin-form label { font-size: 12px; color: var(--charcoal-soft); display: block; margin-bottom: 4px; }
+.admin-form input, .admin-form textarea {
+  width: 100%; padding: 9px 10px; border: 1px solid var(--line); font-family: var(--font-body); font-size: 13px;
+}
+.admin-form button { grid-column: 1 / -1; }
+.admin-delete-btn { color: var(--ink-green); text-decoration: underline; background: none; border: none; cursor: pointer; font-size: 12px; }
+.admin-items-list { font-size: 12px; color: var(--charcoal-soft); }
+
 /* ---------- Footer ---------- */
 .site-footer {
   background: var(--ink-green-deep);
