@@ -27,6 +27,53 @@ function json(data, status = 200) {
   });
 }
 
+async function sendWhatsAppAlert(text, env) {
+  if (!env.CALLMEBOT_PHONE || !env.CALLMEBOT_APIKEY) return;
+  try {
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(env.CALLMEBOT_PHONE)}&text=${encodeURIComponent(text)}&apikey=${encodeURIComponent(env.CALLMEBOT_APIKEY)}`;
+    await fetch(url);
+  } catch (e) {
+    // Notification failures should never break order placement
+  }
+}
+
+async function sendEmailAlert(order, itemsText, env) {
+  if (!env.RESEND_API_KEY || !env.NOTIFY_EMAIL) return;
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'Calista Orders <onboarding@resend.dev>',
+        to: env.NOTIFY_EMAIL,
+        subject: `New Order — ${order.customer_name} — Rs. ${order.total}`,
+        html: `
+          <h2>New Calista Order</h2>
+          <p><b>Customer:</b> ${order.customer_name}<br>
+          <b>Phone:</b> ${order.phone}<br>
+          <b>Address:</b> ${order.address}, ${order.city}</p>
+          <p><b>Items:</b><br>${itemsText.replace(/, /g, '<br>')}</p>
+          <p><b>Total:</b> Rs. ${order.total}</p>
+        `
+      })
+    });
+  } catch (e) {
+    // Notification failures should never break order placement
+  }
+}
+
+async function notifyNewOrder(order, env) {
+  const itemsText = order.items.map(i => `${i.name} (${i.size}) x${i.qty}`).join(', ');
+  const summary = `🛍️ New Calista Order!\nCustomer: ${order.customer_name}\nPhone: ${order.phone}\nAddress: ${order.address}, ${order.city}\nItems: ${itemsText}\nTotal: Rs. ${order.total}`;
+  await Promise.allSettled([
+    sendWhatsAppAlert(summary, env),
+    sendEmailAlert(order, itemsText, env)
+  ]);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -158,6 +205,8 @@ export default {
           `INSERT INTO orders (customer_name, phone, address, city, items_json, total, status)
            VALUES (?, ?, ?, ?, ?, ?, 'pending')`
         ).bind(customer_name, phone, address, city, JSON.stringify(items), total).run();
+
+        ctx.waitUntil(notifyNewOrder({ customer_name, phone, address, city, items, total }, env));
 
         return json({ success: true });
       } catch (err) {
