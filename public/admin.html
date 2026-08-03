@@ -21,6 +21,7 @@
   <div class="admin-tabs">
     <button class="admin-tab active" data-tab="orders">Orders</button>
     <button class="admin-tab" data-tab="products">Products</button>
+    <button class="admin-tab" data-tab="subscribers">Subscribers</button>
   </div>
 
   <div id="tab-orders">
@@ -47,6 +48,10 @@
     <h3 class="display" style="font-size:20px; margin-bottom:14px;">All Products</h3>
     <div id="products-root">Loading products…</div>
   </div>
+
+  <div id="tab-subscribers" style="display:none;">
+    <div id="subscribers-root">Loading subscribers…</div>
+  </div>
 </div>
 
 <script src="/app.js"></script>
@@ -57,6 +62,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('tab-orders').style.display = tab.dataset.tab === 'orders' ? '' : 'none';
     document.getElementById('tab-products').style.display = tab.dataset.tab === 'products' ? '' : 'none';
+    document.getElementById('tab-subscribers').style.display = tab.dataset.tab === 'subscribers' ? '' : 'none';
   });
 });
 
@@ -199,6 +205,28 @@ document.getElementById('product-form').addEventListener('submit', async (e) => 
 
 loadOrders();
 loadProducts();
+loadSubscribers();
+
+async function loadSubscribers() {
+  const root = document.getElementById('subscribers-root');
+  try {
+    const subs = await api('/api/admin/subscribers');
+    if (subs.length === 0) {
+      root.innerHTML = '<p style="color:var(--charcoal-soft);">No subscribers yet.</p>';
+      return;
+    }
+    root.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th>Email</th><th>Subscribed On</th></tr></thead>
+        <tbody>
+          ${subs.map(s => `<tr><td>${s.email}</td><td>${s.created_at || ''}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (e) {
+    root.innerHTML = `<p style="color:var(--gold);">Could not load subscribers: ${e.message}</p>`;
+  }
+}
 </script>
 </body>
 </html>

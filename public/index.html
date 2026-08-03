@@ -41,10 +41,51 @@
   <a href="/collection.html">Sale</a>
   <a href="/cart.html">Cart</a>
 </nav>
-  <div class="hero-eyebrow">New Season</div>
-  <h1>Embroidery that speaks<br>before you do.</h1>
-  <p>Handpicked lawn, chiffon and khaddar — stitched with detail worth a second look.</p>
-  <a href="#bestsellers" class="btn">Shop Collection</a>
+<section class="hero">
+  <div class="hero-slide active" data-slide="0">
+    <div class="hero-eyebrow">New Season</div>
+    <h1>Embroidery that speaks<br>before you do.</h1>
+    <p>Handpicked lawn, chiffon and khaddar — stitched with detail worth a second look.</p>
+    <a href="/collection.html" class="btn">Shop Collection</a>
+  </div>
+  <div class="hero-slide" data-slide="1">
+    <div class="hero-eyebrow">Winter Edit</div>
+    <h1>Khaddar season<br>has arrived.</h1>
+    <p>Warm, block-printed khaddar suits — ready for the season ahead.</p>
+    <a href="/collection.html?fabric=Khaddar" class="btn">Shop Khaddar</a>
+  </div>
+  <div class="hero-slide" data-slide="2">
+    <div class="hero-eyebrow">Limited Time</div>
+    <h1>Free COD delivery<br>over Rs. 3,000.</h1>
+    <p>Shop now, pay at your doorstep — no cards, no hassle.</p>
+    <a href="/collection.html" class="btn">Shop Sale</a>
+  </div>
+  <div class="hero-dots">
+    <button class="hero-dot active" data-dot="0" aria-label="Slide 1"></button>
+    <button class="hero-dot" data-dot="1" aria-label="Slide 2"></button>
+    <button class="hero-dot" data-dot="2" aria-label="Slide 3"></button>
+  </div>
+</section>
+
+<section class="trust-strip">
+  <div class="container trust-strip-inner">
+    <div class="trust-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="7" width="15" height="10"/><path d="M16 10h4l3 3v4h-7z"/><circle cx="6" cy="19" r="1.6"/><circle cx="17.5" cy="19" r="1.6"/></svg>
+      <span>Cash on Delivery</span>
+    </div>
+    <div class="trust-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 6v6c0 5 4 9 9 10 5-1 9-5 9-10V6z"/></svg>
+      <span>Free Delivery Over Rs. 3,000</span>
+    </div>
+    <div class="trust-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+      <span>7-Day Easy Return</span>
+    </div>
+    <div class="trust-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      <span>Quality Checked</span>
+    </div>
+  </div>
 </section>
 <div class="stitch-divider"></div>
 
@@ -84,6 +125,35 @@
     <div class="product-grid" id="product-grid">
       <!-- filled by app.js -->
     </div>
+  </div>
+</section>
+
+<section class="section" style="padding-bottom:0;">
+  <div class="container">
+    <div class="section-head">
+      <h2>Follow @calista</h2>
+      <div class="stitch-divider"></div>
+    </div>
+  </div>
+  <div class="insta-gallery">
+    <a class="insta-tile" href="#"><img src="/images/placeholder-1.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img src="/images/placeholder-2.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img src="/images/placeholder-4.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img src="/images/placeholder-5.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img src="/images/placeholder-7.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img src="/images/placeholder-9.svg" alt=""></a>
+  </div>
+</section>
+
+<section class="newsletter-section">
+  <div class="container" style="text-align:center; max-width:520px;">
+    <h2 style="color:var(--ivory); font-size:28px; margin-bottom:10px;">Join the Calista List</h2>
+    <p style="color:var(--ivory-warm); font-size:14px; margin-bottom:24px;">New arrivals and sale alerts, straight to your inbox.</p>
+    <form id="newsletter-form" class="newsletter-form">
+      <input type="email" name="email" required placeholder="Your email address">
+      <button type="submit" class="btn">Subscribe</button>
+    </form>
+    <div id="newsletter-msg" style="font-size:13px; margin-top:10px; color:var(--gold-soft);"></div>
   </div>
 </section>
 
@@ -132,6 +202,40 @@
     </a>
   `).join('');
 })();
+
+(function heroSlider() {
+  const slides = document.querySelectorAll('.hero-slide');
+  const dots = document.querySelectorAll('.hero-dot');
+  let current = 0;
+  function show(i) {
+    slides.forEach(s => s.classList.remove('active'));
+    dots.forEach(d => d.classList.remove('active'));
+    slides[i].classList.add('active');
+    dots[i].classList.add('active');
+    current = i;
+  }
+  dots.forEach(dot => dot.addEventListener('click', () => show(Number(dot.dataset.dot))));
+  setInterval(() => show((current + 1) % slides.length), 5000);
+})();
+
+document.getElementById('newsletter-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const msg = document.getElementById('newsletter-msg');
+  try {
+    const res = await fetch('/api/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: form.email.value })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Something went wrong');
+    msg.textContent = 'Subscribed — thank you!';
+    form.reset();
+  } catch (err) {
+    msg.textContent = err.message;
+  }
+});
 </script>
 </body>
 </html>
