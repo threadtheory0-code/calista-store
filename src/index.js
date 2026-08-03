@@ -104,6 +104,36 @@ export default {
       }
     }
 
+    if (path === '/api/admin/subscribers' && method === 'GET') {
+      try {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM subscribers ORDER BY created_at DESC')
+          .all();
+        return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/subscribe' && method === 'POST') {
+      try {
+        const { email } = await request.json();
+        const valid = typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+        if (!valid) return json({ error: 'Please enter a valid email address' }, 400);
+        try {
+          await env.DB.prepare('INSERT INTO subscribers (email) VALUES (?)').bind(email).run();
+        } catch (dbErr) {
+          if (String(dbErr.message).includes('UNIQUE')) {
+            return json({ error: "You're already subscribed!" }, 400);
+          }
+          throw dbErr;
+        }
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     if (path === '/api/products' && method === 'GET') {
       try {
         const { results } = await env.DB
