@@ -6,9 +6,13 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = ["/api/*"]
+run_worker_first = ["/api/*", "/admin.html", "/uploads/*"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "kapra_store_db"
 database_id = "ea0cb1a3-42fd-44c0-b4aa-ab6c977bcd89"
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "calista-images"
