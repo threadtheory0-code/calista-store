@@ -41,30 +41,8 @@
   <a href="/collection.html">Sale</a>
   <a href="/cart.html">Cart</a>
 </nav>
-<section class="hero">
-  <div class="hero-slide active" data-slide="0">
-    <div class="hero-eyebrow">New Season</div>
-    <h1>Embroidery that speaks<br>before you do.</h1>
-    <p>Handpicked lawn, chiffon and khaddar — stitched with detail worth a second look.</p>
-    <a href="/collection.html" class="btn">Shop Collection</a>
-  </div>
-  <div class="hero-slide" data-slide="1">
-    <div class="hero-eyebrow">Winter Edit</div>
-    <h1>Khaddar season<br>has arrived.</h1>
-    <p>Warm, block-printed khaddar suits — ready for the season ahead.</p>
-    <a href="/collection.html?fabric=Khaddar" class="btn">Shop Khaddar</a>
-  </div>
-  <div class="hero-slide" data-slide="2">
-    <div class="hero-eyebrow">Limited Time</div>
-    <h1>Free COD delivery<br>over Rs. 3,000.</h1>
-    <p>Shop now, pay at your doorstep — no cards, no hassle.</p>
-    <a href="/collection.html" class="btn">Shop Sale</a>
-  </div>
-  <div class="hero-dots">
-    <button class="hero-dot active" data-dot="0" aria-label="Slide 1"></button>
-    <button class="hero-dot" data-dot="1" aria-label="Slide 2"></button>
-    <button class="hero-dot" data-dot="2" aria-label="Slide 3"></button>
-  </div>
+<section class="hero" id="hero">
+  <!-- filled by loadBanners() -->
 </section>
 
 <section class="trust-strip">
@@ -203,20 +181,55 @@
   `).join('');
 })();
 
-(function heroSlider() {
+async function loadBanners() {
+  const hero = document.getElementById('hero');
+  try {
+    const res = await fetch('/api/banners');
+    const banners = await res.json();
+    if (!Array.isArray(banners) || banners.length === 0) return;
+
+    hero.innerHTML = banners.map((b, i) => `
+      <div class="hero-slide ${i === 0 ? 'active' : ''}" data-slide="${i}"
+           ${b.image_url ? `style="background-image:url('${b.image_url}')"` : ''}>
+        ${b.image_url ? '<div class="hero-overlay"></div>' : ''}
+        <div class="hero-slide-content">
+          ${b.eyebrow ? `<div class="hero-eyebrow">${b.eyebrow}</div>` : ''}
+          <h1>${b.heading}</h1>
+          ${b.subheading ? `<p>${b.subheading}</p>` : ''}
+          ${b.button_text ? `<a href="${b.button_link || '#'}" class="btn">${b.button_text}</a>` : ''}
+        </div>
+      </div>
+    `).join('') + (banners.length > 1 ? `
+      <div class="hero-dots">
+        ${banners.map((b, i) => `<button class="hero-dot ${i === 0 ? 'active' : ''}" data-dot="${i}" aria-label="Slide ${i + 1}"></button>`).join('')}
+      </div>
+    ` : '');
+
+    initHeroSlider();
+  } catch (e) {
+    // Leave hero empty if banners can't load — rest of the page still works
+  }
+}
+
+function initHeroSlider() {
   const slides = document.querySelectorAll('.hero-slide');
   const dots = document.querySelectorAll('.hero-dot');
+  if (slides.length === 0) return;
   let current = 0;
   function show(i) {
     slides.forEach(s => s.classList.remove('active'));
     dots.forEach(d => d.classList.remove('active'));
     slides[i].classList.add('active');
-    dots[i].classList.add('active');
+    if (dots[i]) dots[i].classList.add('active');
     current = i;
   }
   dots.forEach(dot => dot.addEventListener('click', () => show(Number(dot.dataset.dot))));
-  setInterval(() => show((current + 1) % slides.length), 5000);
-})();
+  if (slides.length > 1) {
+    setInterval(() => show((current + 1) % slides.length), 5000);
+  }
+}
+
+loadBanners();
 
 document.getElementById('newsletter-form').addEventListener('submit', async (e) => {
   e.preventDefault();

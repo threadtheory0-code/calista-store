@@ -79,13 +79,6 @@
       <label><input type="checkbox" class="f-price" value="5000-8000" checked> Rs. 5,000 – 8,000</label>
       <label><input type="checkbox" class="f-price" value="8000-999999" checked> Above Rs. 8,000</label>
     </div>
-    <div class="filter-group">
-      <h4>Size</h4>
-      <label><input type="checkbox" class="f-size" value="S" checked> S</label>
-      <label><input type="checkbox" class="f-size" value="M" checked> M</label>
-      <label><input type="checkbox" class="f-size" value="L" checked> L</label>
-      <label><input type="checkbox" class="f-size" value="XL" checked> XL</label>
-    </div>
     <button class="clear-filters" id="clear-filters">Clear all filters</button>
   </aside>
 
@@ -142,14 +135,12 @@ function inPriceBand(price, band) {
 function getFiltered() {
   const fabrics = [...document.querySelectorAll('.f-fabric:checked')].map(c => c.value);
   const priceBands = [...document.querySelectorAll('.f-price:checked')].map(c => c.value);
-  const sizes = [...document.querySelectorAll('.f-size:checked')].map(c => c.value);
 
   let list = ALL_PRODUCTS.filter(p => {
     const effectivePrice = p.sale_price || p.price;
     const fabricOk = fabrics.includes(p.fabric);
     const priceOk = priceBands.some(band => inPriceBand(effectivePrice, band));
-    const sizeOk = p.sizes.split(',').some(s => sizes.includes(s));
-    return fabricOk && priceOk && sizeOk;
+    return fabricOk && priceOk;
   });
 
   const sort = document.getElementById('sort-select').value;
@@ -161,7 +152,6 @@ function getFiltered() {
 }
 
 function cardHtml(p) {
-  const sizes = p.sizes.split(',');
   return `
     <div class="product-card" data-id="${p.id}">
       <a class="product-thumb" href="/product.html?slug=${p.slug}">
@@ -172,12 +162,7 @@ function cardHtml(p) {
       <div class="product-info">
         <a href="/product.html?slug=${p.slug}" class="product-name">${p.name}</a>
         <div class="product-price">${priceHtml(p)}</div>
-        <div class="quick-add-row">
-          <span class="quick-add-label">Quick add</span>
-          <div class="quick-size-chips">
-            ${sizes.map(s => `<button class="qsize-btn" data-id="${p.id}" data-size="${s}">${s}</button>`).join('')}
-          </div>
-        </div>
+        <button class="quick-add-btn-full" data-id="${p.id}">Quick Add</button>
       </div>
     </div>
   `;
@@ -198,13 +183,13 @@ function render() {
   document.getElementById('result-count').textContent = `Showing ${toShow.length} of ${filtered.length} products`;
   document.getElementById('load-more').style.display = VISIBLE_COUNT < filtered.length ? 'inline-block' : 'none';
 
-  grid.querySelectorAll('.qsize-btn').forEach(btn => {
+  grid.querySelectorAll('.quick-add-btn-full').forEach(btn => {
     btn.addEventListener('click', () => {
       const product = ALL_PRODUCTS.find(p => p.id === Number(btn.dataset.id));
-      addToCart(product, btn.dataset.size, 1);
-      showToast(`Added — ${product.name} (${btn.dataset.size})`);
+      addToCart(product, 1);
+      showToast(`Added — ${product.name}`);
       const original = btn.textContent;
-      btn.textContent = '✓';
+      btn.textContent = 'Added ✓';
       setTimeout(() => { btn.textContent = original; }, 900);
     });
   });

@@ -65,39 +65,30 @@
     return;
   }
 
-  const sizes = product.sizes.split(',');
-  let selectedSize = sizes[0];
+  let galleryImages = [];
+  try {
+    if (product.images_json) galleryImages = JSON.parse(product.images_json);
+  } catch (e) {}
+  if (!galleryImages.length) {
+    galleryImages = [product.image_url, product.image_url_2].filter(Boolean);
+  }
 
   root.innerHTML = `
     <div class="product-gallery">
-      <img src="${product.image_url}" alt="${product.name}">
-      ${product.image_url_2 ? `<img src="${product.image_url_2}" alt="${product.name}">` : ''}
+      ${galleryImages.map(img => `<img src="${img}" alt="${product.name}">`).join('')}
     </div>
     <div class="product-copy">
       <span class="fabric-tag">${product.fabric || ''}</span>
       <h1>${product.name}</h1>
       <div class="price-row">${priceHtml(product)}</div>
       <p class="desc">${product.description || ''}</p>
-      <div>
-        <label style="font-size:13px; color:var(--charcoal-soft); display:block; margin-bottom:8px;">Size</label>
-        <div class="size-picker" id="size-picker">
-          ${sizes.map((s, i) => `<button class="size-btn ${i === 0 ? 'selected' : ''}" data-size="${s}">${s}</button>`).join('')}
-        </div>
-      </div>
       <button class="btn" id="add-btn" style="width:100%;">Add to Cart</button>
     </div>
   `;
 
-  document.getElementById('size-picker').addEventListener('click', (e) => {
-    if (!e.target.matches('.size-btn')) return;
-    document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('selected'));
-    e.target.classList.add('selected');
-    selectedSize = e.target.dataset.size;
-  });
-
   function addCurrentToCart() {
-    addToCart(product, selectedSize, 1);
-    showToast(`Added — ${product.name} (${selectedSize})`);
+    addToCart(product, 1);
+    showToast(`Added — ${product.name}`);
   }
 
   document.getElementById('add-btn').addEventListener('click', () => {

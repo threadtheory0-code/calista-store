@@ -52,7 +52,7 @@ function renderSummary() {
   const cart = getCart();
   return `
     <div class="order-summary">
-      ${cart.map(i => `<div class="row"><span>${i.name} (${i.size}) x${i.qty}</span><span>${money(i.price * i.qty)}</span></div>`).join('')}
+      ${cart.map(i => `<div class="row"><span>${i.name} x${i.qty}</span><span>${money(i.price * i.qty)}</span></div>`).join('')}
       <div class="row" style="font-weight:600; border-top:1px solid var(--line); margin-top:8px; padding-top:10px;">
         <span>Total (Cash on Delivery)</span><span>${money(cartTotal(cart))}</span>
       </div>

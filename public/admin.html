@@ -21,6 +21,7 @@
   <div class="admin-tabs">
     <button class="admin-tab active" data-tab="orders">Orders</button>
     <button class="admin-tab" data-tab="products">Products</button>
+    <button class="admin-tab" data-tab="banners">Banners</button>
     <button class="admin-tab" data-tab="subscribers">Subscribers</button>
   </div>
 
@@ -29,17 +30,34 @@
   </div>
 
   <div id="tab-products" style="display:none;">
-    <h3 class="display" style="font-size:20px; margin-bottom:14px;">Add New Product</h3>
+    <h3 class="display" style="font-size:20px; margin-bottom:14px;">Bulk Upload Products (CSV)</h3>
+    <div class="bulk-upload-box">
+      <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">
+        Download the template, fill it in Excel/Google Sheets (one row per product), then upload it here.
+        Re-uploading with an existing slug updates that product instead of duplicating it — so this also works for bulk edits.
+        Image columns need URLs (upload photos individually below first to get URLs, or host them elsewhere).
+      </p>
+      <button class="btn btn-outline-dark" id="download-template-btn" type="button">Download CSV Template</button>
+      <div style="margin-top:16px;">
+        <input type="file" id="csv-file-input" accept=".csv">
+      </div>
+      <div id="csv-preview-root"></div>
+      <div id="csv-upload-msg" style="font-size:13px; margin-top:10px;"></div>
+    </div>
+
+    <h3 class="display" style="font-size:20px; margin:36px 0 14px;">Add Single Product</h3>
     <form class="admin-form" id="product-form">
       <div><label>Name</label><input name="name" required></div>
       <div><label>Slug (URL-safe, unique)</label><input name="slug" required></div>
       <div><label>Fabric</label><input name="fabric" placeholder="Lawn / Chiffon / Khaddar / Silk"></div>
-      <div><label>Sizes (comma separated)</label><input name="sizes" value="S,M,L,XL" required></div>
       <div><label>Regular Price (Rs.)</label><input name="price" type="number" required></div>
       <div><label>Sale Price (Rs., optional)</label><input name="sale_price" type="number"></div>
       <div><label>Stock</label><input name="stock" type="number" value="10" required></div>
-      <div><label>Image URL</label><input name="image_url" value="/images/placeholder-1.svg" required></div>
-      <div><label>Image URL 2 (hover, optional)</label><input name="image_url_2" value="/images/placeholder-1b.svg"></div>
+      <div class="full">
+        <label>Product Images (select one or more — first becomes the main photo)</label>
+        <input type="file" id="product-images-input" multiple accept="image/*">
+        <div class="image-preview-row" id="product-images-preview"></div>
+      </div>
       <div class="full"><label>Description</label><textarea name="description" rows="2"></textarea></div>
       <button type="submit" class="btn">Add Product</button>
       <div id="product-form-msg" class="full" style="font-size:13px;"></div>
@@ -47,6 +65,30 @@
 
     <h3 class="display" style="font-size:20px; margin-bottom:14px;">All Products</h3>
     <div id="products-root">Loading products…</div>
+  </div>
+
+  <div id="tab-banners" style="display:none;">
+    <h3 class="display" style="font-size:20px; margin-bottom:14px;" id="banner-form-title">Add Banner</h3>
+    <form class="admin-form" id="banner-form">
+      <input type="hidden" name="id">
+      <div><label>Eyebrow (small label above heading)</label><input name="eyebrow"></div>
+      <div><label>Sort Order (0 shows first)</label><input name="sort_order" type="number" value="0"></div>
+      <div class="full"><label>Heading</label><input name="heading" required></div>
+      <div class="full"><label>Subheading</label><input name="subheading"></div>
+      <div><label>Button Text</label><input name="button_text" placeholder="Shop Collection"></div>
+      <div><label>Button Link</label><input name="button_link" placeholder="/collection.html"></div>
+      <div class="full">
+        <label>Banner Image (optional — shows as background; leave empty for solid color)</label>
+        <input type="file" id="banner-image-input" accept="image/*">
+        <div class="image-preview-row" id="banner-image-preview"></div>
+      </div>
+      <button type="submit" class="btn">Add Banner</button>
+      <button type="button" class="admin-delete-btn full" id="banner-cancel-edit" style="display:none;">Cancel edit</button>
+      <div id="banner-form-msg" class="full" style="font-size:13px;"></div>
+    </form>
+
+    <h3 class="display" style="font-size:20px; margin-bottom:14px;">All Banners</h3>
+    <div id="banners-root">Loading banners…</div>
   </div>
 
   <div id="tab-subscribers" style="display:none;">
@@ -60,9 +102,9 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    document.getElementById('tab-orders').style.display = tab.dataset.tab === 'orders' ? '' : 'none';
-    document.getElementById('tab-products').style.display = tab.dataset.tab === 'products' ? '' : 'none';
-    document.getElementById('tab-subscribers').style.display = tab.dataset.tab === 'subscribers' ? '' : 'none';
+    ['orders','products','banners','subscribers'].forEach(name => {
+      document.getElementById('tab-' + name).style.display = tab.dataset.tab === name ? '' : 'none';
+    });
   });
 });
 
@@ -73,6 +115,18 @@ async function api(path, options = {}) {
     throw new Error(err.error || 'Request failed');
   }
   return res.json();
+}
+
+async function uploadFiles(fileList) {
+  const formData = new FormData();
+  for (const file of fileList) formData.append('files', file);
+  const res = await fetch('/api/admin/upload', { method: 'POST', body: formData });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(err.error || 'Upload failed');
+  }
+  const data = await res.json();
+  return data.urls;
 }
 
 /* ---------------- Orders ---------------- */
@@ -99,7 +153,7 @@ async function loadOrders() {
                 <td>${o.customer_name}</td>
                 <td>${o.phone}</td>
                 <td>${o.address}, ${o.city}</td>
-                <td class="admin-items-list">${items.map(i => `${i.name} (${i.size}) x${i.qty}`).join('<br>')}</td>
+                <td class="admin-items-list">${items.map(i => `${i.name} x${i.qty}`).join('<br>')}</td>
                 <td>${money(o.total)}</td>
                 <td>
                   <select class="admin-status-select" data-id="${o.id}">
@@ -132,17 +186,55 @@ async function loadOrders() {
   }
 }
 
-/* ---------------- Products ---------------- */
+/* ---------------- Products: single add with multi-image upload ---------------- */
+let productImages = [];
+
+function renderProductImagePreviews() {
+  const box = document.getElementById('product-images-preview');
+  box.innerHTML = productImages.map((url, i) => `
+    <div class="image-thumb">
+      <img src="${url}">
+      ${i === 0 ? '<span class="image-thumb-tag">Main</span>' : ''}
+      <button type="button" class="image-thumb-remove" data-i="${i}">×</button>
+    </div>
+  `).join('');
+  box.querySelectorAll('.image-thumb-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      productImages.splice(Number(btn.dataset.i), 1);
+      renderProductImagePreviews();
+    });
+  });
+}
+
+document.getElementById('product-images-input').addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if (!files.length) return;
+  const msg = document.getElementById('product-form-msg');
+  msg.textContent = 'Uploading images…';
+  msg.style.color = 'var(--charcoal-soft)';
+  try {
+    const urls = await uploadFiles(files);
+    productImages.push(...urls);
+    renderProductImagePreviews();
+    msg.textContent = '';
+  } catch (err) {
+    msg.textContent = 'Upload error: ' + err.message;
+    msg.style.color = 'var(--gold)';
+  }
+  e.target.value = '';
+});
+
 async function loadProducts() {
   const root = document.getElementById('products-root');
   try {
     const products = await api('/api/admin/products');
     root.innerHTML = `
       <table class="admin-table">
-        <thead><tr><th>Name</th><th>Fabric</th><th>Price</th><th>Stock</th><th>Active</th><th></th></tr></thead>
+        <thead><tr><th></th><th>Name</th><th>Fabric</th><th>Price</th><th>Stock</th><th>Active</th><th></th></tr></thead>
         <tbody>
           ${products.map(p => `
             <tr>
+              <td>${p.image_url ? `<img src="${p.image_url}" style="width:40px;height:52px;object-fit:cover;">` : ''}</td>
               <td>${p.name}</td>
               <td>${p.fabric || ''}</td>
               <td>${priceHtml(p)}</td>
@@ -174,6 +266,11 @@ document.getElementById('product-form').addEventListener('submit', async (e) => 
   e.preventDefault();
   const form = e.target;
   const msg = document.getElementById('product-form-msg');
+  if (productImages.length === 0) {
+    msg.textContent = 'Please add at least one image.';
+    msg.style.color = 'var(--gold)';
+    return;
+  }
   const payload = {
     name: form.name.value,
     slug: form.slug.value,
@@ -181,9 +278,7 @@ document.getElementById('product-form').addEventListener('submit', async (e) => 
     description: form.description.value,
     price: Number(form.price.value),
     sale_price: form.sale_price.value ? Number(form.sale_price.value) : null,
-    sizes: form.sizes.value,
-    image_url: form.image_url.value,
-    image_url_2: form.image_url_2.value,
+    images: productImages,
     stock: Number(form.stock.value)
   };
   try {
@@ -195,7 +290,8 @@ document.getElementById('product-form').addEventListener('submit', async (e) => 
     msg.textContent = 'Product added ✓';
     msg.style.color = 'var(--gold)';
     form.reset();
-    form.sizes.value = 'S,M,L,XL';
+    productImages = [];
+    renderProductImagePreviews();
     loadProducts();
   } catch (err) {
     msg.textContent = 'Error: ' + err.message;
@@ -203,10 +299,247 @@ document.getElementById('product-form').addEventListener('submit', async (e) => 
   }
 });
 
-loadOrders();
-loadProducts();
-loadSubscribers();
+/* ---------------- Bulk CSV upload ---------------- */
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], next = text[i + 1];
+    if (inQuotes) {
+      if (c === '"' && next === '"') { field += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { field += c; }
+    } else {
+      if (c === '"') { inQuotes = true; }
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\r') { /* skip */ }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else { field += c; }
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(cell => cell.trim() !== ''));
+}
 
+document.getElementById('download-template-btn').addEventListener('click', () => {
+  const headers = ['name','slug','fabric','description','price','sale_price','image_url','image_url_2','stock'];
+  const example = ['Sample 3PC Lawn','sample-3pc-lawn','Lawn','Example description here','5999','4499','/images/placeholder-1.svg','/images/placeholder-1b.svg','20'];
+  const csv = headers.join(',') + '\n' + example.join(',') + '\n';
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'calista-products-template.csv';
+  link.click();
+});
+
+let parsedCsvProducts = [];
+
+document.getElementById('csv-file-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const rows = parseCSV(text);
+  const headers = rows[0].map(h => h.trim());
+  parsedCsvProducts = rows.slice(1).map(r => {
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = (r[i] || '').trim());
+    return obj;
+  }).filter(p => p.name && p.slug);
+
+  const preview = document.getElementById('csv-preview-root');
+  preview.innerHTML = `
+    <p style="font-size:13px; margin:14px 0 8px;"><b>${parsedCsvProducts.length}</b> products found. Preview of first 5:</p>
+    <table class="admin-table">
+      <thead><tr><th>Name</th><th>Slug</th><th>Fabric</th><th>Price</th></tr></thead>
+      <tbody>
+        ${parsedCsvProducts.slice(0, 5).map(p => `<tr><td>${p.name}</td><td>${p.slug}</td><td>${p.fabric}</td><td>${p.price}</td></tr>`).join('')}
+      </tbody>
+    </table>
+    <button class="btn" id="confirm-bulk-upload" type="button" style="margin-top:14px;">Upload All ${parsedCsvProducts.length} Products</button>
+  `;
+
+  document.getElementById('confirm-bulk-upload').addEventListener('click', async () => {
+    const msg = document.getElementById('csv-upload-msg');
+    const chunkSize = 50;
+    let uploaded = 0;
+    try {
+      for (let i = 0; i < parsedCsvProducts.length; i += chunkSize) {
+        const chunk = parsedCsvProducts.slice(i, i + chunkSize);
+        await api('/api/admin/products/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ products: chunk })
+        });
+        uploaded += chunk.length;
+        msg.textContent = `Uploaded ${uploaded} of ${parsedCsvProducts.length}…`;
+        msg.style.color = 'var(--charcoal-soft)';
+      }
+      msg.textContent = `Done — ${uploaded} products uploaded ✓`;
+      msg.style.color = 'var(--gold)';
+      preview.innerHTML = '';
+      document.getElementById('csv-file-input').value = '';
+      loadProducts();
+    } catch (err) {
+      msg.textContent = 'Error during upload: ' + err.message + ` (${uploaded} succeeded before this)`;
+      msg.style.color = 'var(--gold)';
+    }
+  });
+});
+
+/* ---------------- Banners ---------------- */
+let bannerImageUrl = null;
+let editingBannerId = null;
+
+function renderBannerImagePreview() {
+  const box = document.getElementById('banner-image-preview');
+  box.innerHTML = bannerImageUrl ? `
+    <div class="image-thumb">
+      <img src="${bannerImageUrl}">
+      <button type="button" class="image-thumb-remove" id="banner-image-remove">×</button>
+    </div>
+  ` : '';
+  document.getElementById('banner-image-remove')?.addEventListener('click', () => {
+    bannerImageUrl = null;
+    renderBannerImagePreview();
+  });
+}
+
+document.getElementById('banner-image-input').addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if (!files.length) return;
+  const msg = document.getElementById('banner-form-msg');
+  msg.textContent = 'Uploading image…';
+  msg.style.color = 'var(--charcoal-soft)';
+  try {
+    const urls = await uploadFiles([files[0]]);
+    bannerImageUrl = urls[0];
+    renderBannerImagePreview();
+    msg.textContent = '';
+  } catch (err) {
+    msg.textContent = 'Upload error: ' + err.message;
+    msg.style.color = 'var(--gold)';
+  }
+  e.target.value = '';
+});
+
+async function loadBannersAdmin() {
+  const root = document.getElementById('banners-root');
+  try {
+    const banners = await api('/api/admin/banners');
+    if (banners.length === 0) {
+      root.innerHTML = '<p style="color:var(--charcoal-soft);">No banners yet.</p>';
+      return;
+    }
+    root.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th></th><th>Heading</th><th>Order</th><th>Active</th><th></th></tr></thead>
+        <tbody>
+          ${banners.map(b => `
+            <tr>
+              <td>${b.image_url ? `<img src="${b.image_url}" style="width:52px;height:34px;object-fit:cover;">` : '—'}</td>
+              <td>${b.heading}</td>
+              <td>${b.sort_order}</td>
+              <td>${b.is_active ? 'Yes' : 'No'}</td>
+              <td>
+                <button class="admin-delete-btn" data-edit="${b.id}">Edit</button>
+                &nbsp;|&nbsp;
+                <button class="admin-delete-btn" data-delete="${b.id}">Delete</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    root.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this banner?')) return;
+        try {
+          await api('/api/admin/banners?id=' + btn.dataset.delete, { method: 'DELETE' });
+          loadBannersAdmin();
+        } catch (e) {
+          alert('Failed to delete: ' + e.message);
+        }
+      });
+    });
+    root.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const b = banners.find(x => x.id === Number(btn.dataset.edit));
+        const form = document.getElementById('banner-form');
+        form.id.value = b.id;
+        form.eyebrow.value = b.eyebrow || '';
+        form.sort_order.value = b.sort_order || 0;
+        form.heading.value = b.heading || '';
+        form.subheading.value = b.subheading || '';
+        form.button_text.value = b.button_text || '';
+        form.button_link.value = b.button_link || '';
+        bannerImageUrl = b.image_url || null;
+        renderBannerImagePreview();
+        editingBannerId = b.id;
+        document.getElementById('banner-form-title').textContent = 'Edit Banner';
+        document.querySelector('#banner-form button[type=submit]').textContent = 'Save Changes';
+        document.getElementById('banner-cancel-edit').style.display = '';
+        window.scrollTo({ top: document.getElementById('banner-form').offsetTop - 80, behavior: 'smooth' });
+      });
+    });
+  } catch (e) {
+    root.innerHTML = `<p style="color:var(--gold);">Could not load banners: ${e.message}</p>`;
+  }
+}
+
+function resetBannerForm() {
+  const form = document.getElementById('banner-form');
+  form.reset();
+  form.id.value = '';
+  bannerImageUrl = null;
+  renderBannerImagePreview();
+  editingBannerId = null;
+  document.getElementById('banner-form-title').textContent = 'Add Banner';
+  document.querySelector('#banner-form button[type=submit]').textContent = 'Add Banner';
+  document.getElementById('banner-cancel-edit').style.display = 'none';
+}
+
+document.getElementById('banner-cancel-edit').addEventListener('click', resetBannerForm);
+
+document.getElementById('banner-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const msg = document.getElementById('banner-form-msg');
+  const payload = {
+    eyebrow: form.eyebrow.value,
+    heading: form.heading.value,
+    subheading: form.subheading.value,
+    button_text: form.button_text.value,
+    button_link: form.button_link.value,
+    image_url: bannerImageUrl,
+    sort_order: Number(form.sort_order.value) || 0
+  };
+  try {
+    if (editingBannerId) {
+      payload.id = editingBannerId;
+      await api('/api/admin/banners', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      msg.textContent = 'Banner updated ✓';
+    } else {
+      await api('/api/admin/banners', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      msg.textContent = 'Banner added ✓';
+    }
+    msg.style.color = 'var(--gold)';
+    resetBannerForm();
+    loadBannersAdmin();
+  } catch (err) {
+    msg.textContent = 'Error: ' + err.message;
+    msg.style.color = 'var(--gold)';
+  }
+});
+
+/* ---------------- Subscribers ---------------- */
 async function loadSubscribers() {
   const root = document.getElementById('subscribers-root');
   try {
@@ -227,6 +560,11 @@ async function loadSubscribers() {
     root.innerHTML = `<p style="color:var(--gold);">Could not load subscribers: ${e.message}</p>`;
   }
 }
+
+loadOrders();
+loadProducts();
+loadBannersAdmin();
+loadSubscribers();
 </script>
 </body>
 </html>

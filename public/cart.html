@@ -62,7 +62,6 @@ function render() {
       <img src="${item.image_url}" alt="${item.name}">
       <div>
         <div class="product-name">${item.name}</div>
-        <div style="font-size:13px; color:var(--charcoal-soft);">Size: ${item.size}</div>
         <div style="font-size:13px; margin-top:4px;">${money(item.price)}</div>
       </div>
       <input class="qty-input" type="number" min="1" value="${item.qty}" data-index="${i}">
