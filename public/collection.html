@@ -188,6 +188,7 @@ function render() {
       const product = ALL_PRODUCTS.find(p => p.id === Number(btn.dataset.id));
       addToCart(product, 1);
       showToast(`Added — ${product.name}`);
+      fireConfetti();
       const original = btn.textContent;
       btn.textContent = 'Added ✓';
       setTimeout(() => { btn.textContent = original; }, 900);

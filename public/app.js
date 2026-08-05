@@ -64,7 +64,8 @@ function money(n) {
 
 function priceHtml(p) {
   if (p.sale_price) {
-    return `<span class="regular">${money(p.price)}</span><span class="sale">${money(p.sale_price)}</span>`;
+    const discount = Math.round((1 - p.sale_price / p.price) * 100);
+    return `<span class="regular">${money(p.price)}</span><span class="sale">${money(p.sale_price)}</span><span class="discount-badge">${discount}% OFF</span>`;
   }
   return `<span class="normal">${money(p.price)}</span>`;
 }
@@ -127,6 +128,54 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ---------------- Mobile nav drawer ---------------- */
+/* ---------------- Confetti burst ---------------- */
+function fireConfetti() {
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9999;';
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const colors = ['#B8923E', '#0A0A0A', '#E2D2A6', '#FAFAF8'];
+  const originX = window.innerWidth / 2;
+  const originY = window.innerHeight * 0.35;
+
+  const particles = Array.from({ length: 55 }, () => ({
+    x: originX + (Math.random() - 0.5) * 60,
+    y: originY,
+    vx: (Math.random() - 0.5) * 9,
+    vy: Math.random() * -9 - 3,
+    size: Math.random() * 6 + 4,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    rotation: Math.random() * 360,
+    rotSpeed: (Math.random() - 0.5) * 22
+  }));
+
+  let frame = 0;
+  function animate() {
+    frame++;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.3;
+      p.rotation += p.rotSpeed;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate((p.rotation * Math.PI) / 180);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+      ctx.restore();
+    });
+    if (frame < 85) {
+      requestAnimationFrame(animate);
+    } else {
+      canvas.remove();
+    }
+  }
+  animate();
+}
+
 function initMobileMenu() {
   const btn = document.getElementById('mobile-menu-btn');
   const drawer = document.getElementById('mobile-nav-drawer');

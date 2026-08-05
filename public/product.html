@@ -74,8 +74,13 @@
   }
 
   root.innerHTML = `
-    <div class="product-gallery">
-      ${galleryImages.map(img => `<img src="${img}" alt="${product.name}">`).join('')}
+    <div class="product-gallery-slider">
+      <div class="gallery-track" id="gallery-track">
+        ${galleryImages.map(img => `<div class="gallery-slide"><img src="${img}" alt="${product.name}"></div>`).join('')}
+      </div>
+      <button class="gallery-arrow gallery-arrow-left" id="gallery-prev" aria-label="Previous image">‹</button>
+      <button class="gallery-arrow gallery-arrow-right" id="gallery-next" aria-label="Next image">›</button>
+      <div class="gallery-dots" id="gallery-dots"></div>
     </div>
     <div class="product-copy">
       <span class="fabric-tag">${product.fabric || ''}</span>
@@ -86,9 +91,12 @@
     </div>
   `;
 
+  initGallery(galleryImages);
+
   function addCurrentToCart() {
     addToCart(product, 1);
     showToast(`Added — ${product.name}`);
+    fireConfetti();
   }
 
   document.getElementById('add-btn').addEventListener('click', () => {
@@ -107,6 +115,37 @@
     stickyBtn.textContent = 'Added ✓';
     setTimeout(() => { stickyBtn.textContent = 'Add to Cart'; }, 1200);
   });
+
+  function initGallery(images) {
+    const track = document.getElementById('gallery-track');
+    const dotsBox = document.getElementById('gallery-dots');
+    const prevBtn = document.getElementById('gallery-prev');
+    const nextBtn = document.getElementById('gallery-next');
+
+    dotsBox.innerHTML = images.map((_, i) => `<button class="gallery-dot ${i === 0 ? 'active' : ''}" data-i="${i}" aria-label="Go to image ${i + 1}"></button>`).join('');
+
+    function currentIndex() {
+      return Math.round(track.scrollLeft / track.clientWidth);
+    }
+    function scrollToSlide(i) {
+      track.scrollTo({ left: track.clientWidth * i, behavior: 'smooth' });
+    }
+    prevBtn.addEventListener('click', () => scrollToSlide(Math.max(0, currentIndex() - 1)));
+    nextBtn.addEventListener('click', () => scrollToSlide(Math.min(images.length - 1, currentIndex() + 1)));
+    dotsBox.querySelectorAll('.gallery-dot').forEach(dot => {
+      dot.addEventListener('click', () => scrollToSlide(Number(dot.dataset.i)));
+    });
+    track.addEventListener('scroll', () => {
+      const i = currentIndex();
+      dotsBox.querySelectorAll('.gallery-dot').forEach((d, idx) => d.classList.toggle('active', idx === i));
+    }, { passive: true });
+
+    if (images.length <= 1) {
+      prevBtn.style.display = 'none';
+      nextBtn.style.display = 'none';
+      dotsBox.style.display = 'none';
+    }
+  }
 })();
 </script>
 </body>
