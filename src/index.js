@@ -151,7 +151,7 @@ export default {
     if (path === '/api/admin/products' && method === 'GET') {
       try {
         const { results } = await env.DB
-          .prepare('SELECT * FROM products ORDER BY created_at DESC')
+          .prepare('SELECT * FROM products ORDER BY sort_order ASC, id DESC')
           .all();
         return json(results);
       } catch (err) {
@@ -169,8 +169,8 @@ export default {
           return json({ error: 'Missing required fields (need at least one image)' }, 400);
         }
         await env.DB.prepare(
-          `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products))`
         ).bind(
           p.name, p.slug, p.fabric || null, p.description || null,
           p.price, p.sale_price || null, imageUrl, imageUrl2,
@@ -188,22 +188,60 @@ export default {
         if (!Array.isArray(products) || products.length === 0) {
           return json({ error: 'No products provided' }, 400);
         }
-        const stmts = products.map(p =>
-          env.DB.prepare(
-            `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, stock, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        const stmts = products.map(p => {
+          const imgList = [];
+          for (let i = 1; i <= 13; i++) {
+            const key = i === 1 ? 'image_url' : `image_url_${i}`;
+            if (p[key]) imgList.push(p[key]);
+          }
+          const imageUrl = imgList[0] || p.image_url || '';
+          const imageUrl2 = imgList[1] || p.image_url_2 || null;
+          return env.DB.prepare(
+            `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, is_active, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products))
              ON CONFLICT(slug) DO UPDATE SET
                name=excluded.name, fabric=excluded.fabric, description=excluded.description,
                price=excluded.price, sale_price=excluded.sale_price,
-               image_url=excluded.image_url, image_url_2=excluded.image_url_2, stock=excluded.stock`
+               image_url=excluded.image_url, image_url_2=excluded.image_url_2,
+               images_json=excluded.images_json, stock=excluded.stock`
           ).bind(
             p.name, p.slug, p.fabric || null, p.description || null,
             Number(p.price), p.sale_price ? Number(p.sale_price) : null,
-            p.image_url, p.image_url_2 || null, Number(p.stock) || 0
-          )
-        );
+            imageUrl, imageUrl2, imgList.length ? JSON.stringify(imgList) : null, Number(p.stock) || 0
+          );
+        });
         await env.DB.batch(stmts);
         return json({ success: true, count: products.length });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/products/bulk-delete' && method === 'POST') {
+      try {
+        const { ids } = await request.json();
+        if (!Array.isArray(ids) || ids.length === 0) {
+          return json({ error: 'No ids provided' }, 400);
+        }
+        const stmts = ids.map(id => env.DB.prepare('DELETE FROM products WHERE id = ?').bind(id));
+        await env.DB.batch(stmts);
+        return json({ success: true, count: ids.length });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/products/reorder' && method === 'POST') {
+      try {
+        const { updates } = await request.json();
+        if (!Array.isArray(updates) || updates.length === 0) {
+          return json({ error: 'No updates provided' }, 400);
+        }
+        const stmts = updates.map(u =>
+          env.DB.prepare('UPDATE products SET sort_order = ? WHERE id = ?').bind(Number(u.sort_order), u.id)
+        );
+        await env.DB.batch(stmts);
+        return json({ success: true });
       } catch (err) {
         return json({ error: err.message }, 500);
       }
@@ -318,10 +356,46 @@ export default {
       }
     }
 
+    if (path === '/api/settings' && method === 'GET') {
+      try {
+        const { results } = await env.DB.prepare('SELECT key, value FROM site_settings').all();
+        const settings = {};
+        results.forEach(r => { settings[r.key] = r.value; });
+        return json(settings);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/settings' && method === 'GET') {
+      try {
+        const { results } = await env.DB.prepare('SELECT key, value FROM site_settings').all();
+        const settings = {};
+        results.forEach(r => { settings[r.key] = r.value; });
+        return json(settings);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/settings' && method === 'POST') {
+      try {
+        const body = await request.json();
+        const entries = Object.entries(body);
+        const stmts = entries.map(([k, v]) =>
+          env.DB.prepare('INSERT INTO site_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(k, v)
+        );
+        await env.DB.batch(stmts);
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     if (path === '/api/products' && method === 'GET') {
       try {
         const { results } = await env.DB
-          .prepare('SELECT * FROM products WHERE is_active = 1 ORDER BY created_at DESC')
+          .prepare('SELECT * FROM products WHERE is_active = 1 ORDER BY sort_order ASC, id DESC')
           .all();
         return json(results);
       } catch (err) {
@@ -349,6 +423,27 @@ export default {
       } catch (err) {
         return json({ error: err.message }, 500);
       }
+    }
+
+    if (path === '/sitemap.xml' && method === 'GET') {
+      try {
+        const { results } = await env.DB.prepare('SELECT slug FROM products WHERE is_active = 1').all();
+        const origin = url.origin;
+        const staticUrls = ['/', '/collection.html', '/cart.html'];
+        const urls = [
+          ...staticUrls.map(p => `<url><loc>${origin}${p}</loc></url>`),
+          ...results.map(r => `<url><loc>${origin}/product.html?slug=${r.slug}</loc></url>`)
+        ];
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`;
+        return new Response(xml, { headers: { 'Content-Type': 'application/xml' } });
+      } catch (err) {
+        return new Response('', { status: 500 });
+      }
+    }
+
+    if (path === '/robots.txt' && method === 'GET') {
+      const body = `User-agent: *\nAllow: /\nDisallow: /admin.html\nDisallow: /api/\nSitemap: ${url.origin}/sitemap.xml\n`;
+      return new Response(body, { headers: { 'Content-Type': 'text/plain' } });
     }
 
     return env.ASSETS.fetch(request);
