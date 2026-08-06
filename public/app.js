@@ -125,7 +125,25 @@ function updateCartBadge() {
 document.addEventListener('DOMContentLoaded', () => {
   updateCartBadge();
   initMobileMenu();
+  applySiteLogo();
 });
+
+async function applySiteLogo() {
+  const img = document.getElementById('site-logo-img');
+  const txt = document.getElementById('site-logo-text');
+  if (!img || !txt) return;
+  try {
+    const res = await fetch('/api/settings');
+    const s = await res.json();
+    if (s.logo_url) {
+      img.src = s.logo_url;
+      img.style.display = '';
+      txt.style.display = 'none';
+    }
+  } catch (e) {
+    // keep text logo if settings can't load
+  }
+}
 
 /* ---------------- Mobile nav drawer ---------------- */
 /* ---------------- Confetti burst ---------------- */

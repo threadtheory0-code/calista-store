@@ -16,8 +16,8 @@
   --charcoal-soft: #6B6A66;
   --line: rgba(10, 10, 10, 0.12);
 
-  --font-display: 'Cormorant Garamond', serif;
-  --font-body: 'Work Sans', sans-serif;
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
 
   --radius: 2px;
 }
@@ -34,8 +34,8 @@ body {
 
 h1, h2, h3, .display {
   font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--ink-green-deep);
   margin: 0;
 }
@@ -197,7 +197,7 @@ img { max-width: 100%; display: block; }
   background: var(--ivory-warm);
 }
 .product-thumb img {
-  object-position: center;
+  object-position: top center;
   width: 100%; height: 100%; object-fit: cover;
   transition: opacity 0.25s;
 }
@@ -267,7 +267,7 @@ img { max-width: 100%; display: block; }
   scroll-snap-align: center;
   aspect-ratio: 3/4;
 }
-.gallery-slide img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+.gallery-slide img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
 .gallery-arrow {
   position: absolute; top: 50%; transform: translateY(-50%);
   background: rgba(255,255,255,0.88); border: none; width: 36px; height: 36px; border-radius: 50%;
@@ -299,6 +299,12 @@ img { max-width: 100%; display: block; }
 .product-detail h1 { font-size: 32px; margin-bottom: 10px; }
 .product-detail .price-row { margin: 16px 0; font-size: 20px; }
 .product-detail p.desc { color: var(--charcoal-soft); line-height: 1.6; margin-bottom: 24px; }
+.low-stock {
+  color: #C0392B;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 4px 0 16px;
+}
 .size-picker { display: flex; gap: 10px; margin-bottom: 28px; }
 .size-btn {
   border: 1px solid var(--line);
@@ -344,6 +350,18 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
 .order-summary .row { display: flex; justify-content: space-between; padding: 4px 0; }
 
 .empty-state { text-align: center; padding: 60px 24px; color: var(--charcoal-soft); }
+
+.shipping-progress {
+  background: var(--ivory-warm);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+.shipping-progress p { margin: 0 0 8px; }
+.shipping-bar-track { height: 6px; background: rgba(0,0,0,0.08); border-radius: 3px; overflow: hidden; }
+.shipping-bar-fill { height: 100%; background: var(--gold); transition: width 0.3s ease; }
+.shipping-unlocked { color: #1B8A4C; font-weight: 600; }
+.shipping-unlocked p { margin: 0; }
 
 /* ---------- Collection page ---------- */
 .breadcrumb {
@@ -568,6 +586,53 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
   font-family: var(--font-body); font-size: 14px;
 }
 
+/* ---------- Floating WhatsApp button ---------- */
+.whatsapp-float {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #25D366;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  z-index: 850;
+  transition: transform 0.15s;
+}
+.whatsapp-float:hover { transform: scale(1.07); }
+.whatsapp-float svg { width: 28px; height: 28px; }
+@media (max-width: 720px) {
+  .whatsapp-float { bottom: 84px; right: 16px; width: 50px; height: 50px; }
+  .whatsapp-float svg { width: 25px; height: 25px; }
+}
+
+.whatsapp-inquire-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; margin-top: 10px;
+  padding: 12px 0;
+  border: 1px solid #25D366;
+  background: transparent;
+  color: #1B8A4C;
+  font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase;
+  cursor: pointer; text-decoration: none;
+}
+.whatsapp-inquire-btn:hover { background: #25D366; color: #fff; }
+.whatsapp-inquire-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+.whatsapp-group-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px 22px;
+  background: #25D366;
+  color: #fff;
+  font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase;
+  text-decoration: none; margin: 0 auto;
+}
+.whatsapp-group-btn:hover { background: #1DA851; }
+.whatsapp-group-btn svg { width: 17px; height: 17px; }
+
 /* ---------- Mobile nav drawer ---------- */
 .mobile-menu-toggle {
   display: none;
@@ -688,6 +753,14 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
 .admin-items-list { font-size: 12px; color: var(--charcoal-soft); }
 .bulk-upload-box { background: var(--ivory-warm); padding: 20px; }
 .bulk-upload-box code { background: rgba(0,0,0,0.06); padding: 1px 5px; font-size: 12px; }
+.site-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 18px;
+}
+.site-image-grid label {
+  display: block; font-size: 12px; color: var(--charcoal-soft); margin-bottom: 6px;
+}
 .image-preview-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
 .image-thumb { position: relative; width: 70px; height: 90px; }
 .image-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: center; border: 1px solid var(--line); }

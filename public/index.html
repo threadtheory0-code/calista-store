@@ -4,8 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Calista — Embroidered Lawn &amp; Chiffon</title>
+<meta name="description" content="Shop premium unstitched lawn, chiffon, khaddar and silk suits at Calista. Cash on delivery across Pakistan, free delivery over Rs. 3,000.">
+<link rel="canonical" href="https://calista.pages.dev/">
+<meta property="og:title" content="Calista — Embroidered Lawn & Chiffon">
+<meta property="og:description" content="Shop premium unstitched suits at Calista. Cash on delivery across Pakistan.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="/images/placeholder-1.svg">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -13,7 +20,7 @@
 <header class="site-header">
   <div class="announce-bar">Free Delivery Over Rs. 3,000 &nbsp;|&nbsp; Cash on Delivery Available</div>
   <div class="header-inner container">
-    <a href="/" class="logo">Calista</a>
+    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" src="" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
     <ul class="nav-links">
       <li><a href="/collection.html">Unstitched Lawn</a></li>
       <li><a href="/collection.html">New Arrivals</a></li>
@@ -75,19 +82,19 @@
     </div>
     <div class="category-tiles">
       <a class="category-tile" href="/collection.html?fabric=Lawn">
-        <img src="/images/placeholder-1.svg" alt="Lawn">
+        <img id="tile-lawn" src="/images/placeholder-1.svg" alt="Lawn">
         <span class="tile-label">Lawn</span>
       </a>
       <a class="category-tile" href="/collection.html?fabric=Chiffon">
-        <img src="/images/placeholder-2.svg" alt="Chiffon">
+        <img id="tile-chiffon" src="/images/placeholder-2.svg" alt="Chiffon">
         <span class="tile-label">Chiffon</span>
       </a>
       <a class="category-tile" href="/collection.html?fabric=Khaddar">
-        <img src="/images/placeholder-3.svg" alt="Khaddar">
+        <img id="tile-khaddar" src="/images/placeholder-3.svg" alt="Khaddar">
         <span class="tile-label">Khaddar</span>
       </a>
       <a class="category-tile" href="/collection.html?fabric=Silk">
-        <img src="/images/placeholder-9.svg" alt="Silk">
+        <img id="tile-silk" src="/images/placeholder-9.svg" alt="Silk">
         <span class="tile-label">Silk</span>
       </a>
     </div>
@@ -114,12 +121,12 @@
     </div>
   </div>
   <div class="insta-gallery">
-    <a class="insta-tile" href="#"><img src="/images/placeholder-1.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img src="/images/placeholder-2.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img src="/images/placeholder-4.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img src="/images/placeholder-5.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img src="/images/placeholder-7.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img src="/images/placeholder-9.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img id="insta-1" src="/images/placeholder-1.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img id="insta-2" src="/images/placeholder-2.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img id="insta-3" src="/images/placeholder-4.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img id="insta-4" src="/images/placeholder-5.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img id="insta-5" src="/images/placeholder-7.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img id="insta-6" src="/images/placeholder-9.svg" alt=""></a>
   </div>
 </section>
 
@@ -132,6 +139,15 @@
       <button type="submit" class="btn">Subscribe</button>
     </form>
     <div id="newsletter-msg" style="font-size:13px; margin-top:10px; color:var(--gold-soft);"></div>
+  </div>
+</section>
+
+<section class="newsletter-section" style="margin-top:0; padding-top:36px;">
+  <div class="container" style="text-align:center;">
+    <a class="whatsapp-group-btn" href="https://chat.whatsapp.com/BLG8L8PmXDjFJQBqjMmBM6?s=cl&p=a&ilr=4" target="_blank" rel="noopener" style="display:inline-flex;">
+      <svg viewBox="0 0 32 32" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M16 3C9.373 3 4 8.373 4 15c0 2.34.66 4.52 1.8 6.38L4 29l7.82-1.75A11.93 11.93 0 0 0 16 27c6.627 0 12-5.373 12-12S22.627 3 16 3Zm0 21.6c-1.9 0-3.68-.55-5.18-1.5l-.37-.22-4.28.96.93-4.17-.24-.38A9.57 9.57 0 0 1 5.4 15c0-5.85 4.75-10.6 10.6-10.6S26.6 9.15 26.6 15 21.85 24.6 16 24.6Zm5.62-7.9c-.3-.15-1.8-.89-2.08-.99-.28-.1-.48-.15-.68.15-.2.3-.78.99-.96 1.19-.18.2-.35.22-.65.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.79-1.68-2.09-.18-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.68-1.64-.93-2.24-.24-.58-.49-.5-.68-.51h-.58c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.2 1.87.12.57-.09 1.8-.73 2.05-1.44.25-.71.25-1.32.18-1.44-.07-.12-.27-.2-.57-.35Z"/></svg>
+      Join WhatsApp Group for Latest Updates
+    </a>
   </div>
 </section>
 
@@ -231,6 +247,22 @@ function initHeroSlider() {
 
 loadBanners();
 
+(async function loadSiteSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    const s = await res.json();
+    const tileMap = { tile_lawn: 'tile-lawn', tile_chiffon: 'tile-chiffon', tile_khaddar: 'tile-khaddar', tile_silk: 'tile-silk' };
+    Object.entries(tileMap).forEach(([key, id]) => {
+      if (s[key]) document.getElementById(id).src = s[key];
+    });
+    for (let i = 1; i <= 6; i++) {
+      if (s['insta_' + i]) document.getElementById('insta-' + i).src = s['insta_' + i];
+    }
+  } catch (e) {
+    // keep defaults if settings can't load
+  }
+})();
+
 document.getElementById('newsletter-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -250,5 +282,10 @@ document.getElementById('newsletter-form').addEventListener('submit', async (e) 
   }
 });
 </script>
+<a class="whatsapp-float" href="https://wa.me/923026255682" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">
+  <svg viewBox="0 0 32 32" fill="white" xmlns="http://www.w3.org/2000/svg">
+    <path d="M16 3C9.373 3 4 8.373 4 15c0 2.34.66 4.52 1.8 6.38L4 29l7.82-1.75A11.93 11.93 0 0 0 16 27c6.627 0 12-5.373 12-12S22.627 3 16 3Zm0 21.6c-1.9 0-3.68-.55-5.18-1.5l-.37-.22-4.28.96.93-4.17-.24-.38A9.57 9.57 0 0 1 5.4 15c0-5.85 4.75-10.6 10.6-10.6S26.6 9.15 26.6 15 21.85 24.6 16 24.6Zm5.62-7.9c-.3-.15-1.8-.89-2.08-.99-.28-.1-.48-.15-.68.15-.2.3-.78.99-.96 1.19-.18.2-.35.22-.65.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.79-1.68-2.09-.18-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.68-1.64-.93-2.24-.24-.58-.49-.5-.68-.51h-.58c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.2 1.87.12.57-.09 1.8-.73 2.05-1.44.25-.71.25-1.32.18-1.44-.07-.12-.27-.2-.57-.35Z"/>
+  </svg>
+</a>
 </body>
 </html>
