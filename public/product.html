@@ -144,7 +144,7 @@
 
   ttEvent('ViewContent', {
     contents: [{ content_id: String(product.id), content_type: 'product', content_name: product.name }],
-    value: effectivePrice,
+    value: product.sale_price || product.price,
     currency: 'PKR'
   });
 
