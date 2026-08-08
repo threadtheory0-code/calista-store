@@ -134,7 +134,7 @@ class AppState(private val ctx: Context) {
         runCatching { products = Api.products() }
     }
 
-    fun setRange(r: String) {
+    fun pickRange(r: String) {
         range = r
         scope.launch { runCatching { stats = Api.stats(r) } }
     }
