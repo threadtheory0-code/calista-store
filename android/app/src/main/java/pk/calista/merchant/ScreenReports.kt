@@ -36,7 +36,7 @@ fun ReportsScreen(s: AppState) {
                 Box(
                     Modifier.weight(1f)
                         .background(if (active) T.gold else Color.Transparent)
-                        .clickable { s.setRange(r) }
+                        .clickable { s.pickRange(r) }
                         .padding(vertical = 11.dp),
                     contentAlignment = Alignment.Center,
                 ) {
