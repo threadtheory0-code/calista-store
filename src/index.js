@@ -217,6 +217,21 @@ export default {
       }
     }
 
+    if (path === '/api/admin/products/bulk-tag' && method === 'POST') {
+      try {
+        const { ids, field, value } = await request.json();
+        const allowedFields = ['in_new_arrivals', 'in_sale_tab', 'in_lawn_tab', 'fabric', 'is_active'];
+        if (!Array.isArray(ids) || ids.length === 0 || !allowedFields.includes(field)) {
+          return json({ error: 'Invalid request' }, 400);
+        }
+        const stmts = ids.map(id => env.DB.prepare(`UPDATE products SET ${field} = ? WHERE id = ?`).bind(value, id));
+        await env.DB.batch(stmts);
+        return json({ success: true, count: ids.length });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     if (path === '/api/admin/products/bulk-delete' && method === 'POST') {
       try {
         const { ids } = await request.json();
