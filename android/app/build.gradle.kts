@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "pk.calista.merchant"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "pk.calista.merchant"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
     }
@@ -44,4 +44,5 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

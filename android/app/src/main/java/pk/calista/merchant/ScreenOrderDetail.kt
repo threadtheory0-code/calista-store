@@ -105,13 +105,13 @@ fun OrderDetailScreen(s: AppState) {
             Blueprint {
                 Kicker("Items")
                 Spacer(Modifier.height(8.dp))
-                for (it in o.items) {
+                for (li in o.items) {
                     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
                         Column(Modifier.weight(1f)) {
-                            Text(it.name, color = T.text, style = body(13))
-                            Text("size " + it.size + " · x" + it.qty, color = T.ghost, style = mono(11))
+                            Text(li.name, color = T.text, style = body(13))
+                            Text("size " + li.size + " · x" + li.qty, color = T.ghost, style = mono(11))
                         }
-                        Text(rs(it.price * it.qty), color = T.goldSoft, style = head(14))
+                        Text(rs(li.price * li.qty), color = T.goldSoft, style = head(14))
                     }
                 }
                 Spacer(Modifier.height(8.dp))
