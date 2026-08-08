@@ -14,6 +14,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
+<script>
+!function (w, d, t) {
+  w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
+
+  ttq.load("YOUR_TIKTOK_PIXEL_ID");
+  ttq.page();
+}(window, document, 'ttq');
+</script>
 </head>
 <body>
 
@@ -22,9 +30,9 @@
   <div class="header-inner container">
     <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" src="" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
     <ul class="nav-links">
-      <li><a href="/collection.html">Unstitched Lawn</a></li>
-      <li><a href="/collection.html">New Arrivals</a></li>
-      <li><a href="/collection.html">Sale</a></li>
+      <li><a href="/collection.html?view=lawn">Unstitched Lawn</a></li>
+      <li><a href="/collection.html?view=new">New Arrivals</a></li>
+      <li><a href="/collection.html?view=sale">Sale</a></li>
     </ul>
     <div class="header-icons">
       <button class="mobile-menu-toggle" id="mobile-menu-btn" aria-label="Open menu">
@@ -44,8 +52,8 @@
     </button>
   </div>
   <a href="/index.html">Home</a>
-  <a href="/collection.html">Unstitched Lawn</a>
-  <a href="/collection.html">Sale</a>
+  <a href="/collection.html?view=lawn">Unstitched Lawn</a>
+  <a href="/collection.html?view=sale">Sale</a>
   <a href="/cart.html">Cart</a>
 </nav>
 <section class="hero" id="hero">
@@ -162,7 +170,7 @@
     <div>
       <h4>Shop</h4>
       <ul>
-        <li><a href="/index.html">New Arrivals</a></li>
+        <li><a href="/collection.html?view=new">New Arrivals</a></li>
         <li><a href="/cart.html">Cart</a></li>
       </ul>
     </div>
@@ -255,8 +263,27 @@ loadBanners();
     Object.entries(tileMap).forEach(([key, id]) => {
       if (s[key]) document.getElementById(id).src = s[key];
     });
-    for (let i = 1; i <= 6; i++) {
-      if (s['insta_' + i]) document.getElementById('insta-' + i).src = s['insta_' + i];
+
+    const labelMap = { fabric_label_Lawn: 'tile-lawn', fabric_label_Chiffon: 'tile-chiffon', fabric_label_Khaddar: 'tile-khaddar', fabric_label_Silk: 'tile-silk' };
+    Object.entries(labelMap).forEach(([key, imgId]) => {
+      if (s[key]) {
+        const labelEl = document.getElementById(imgId)?.nextElementSibling;
+        if (labelEl) labelEl.textContent = s[key];
+      }
+    });
+
+    if (s.insta_gallery_mode === 'random') {
+      const products = await getProducts();
+      const pool = products.map(p => p.image_url).filter(Boolean);
+      const shuffled = pool.sort(() => Math.random() - 0.5).slice(0, 6);
+      shuffled.forEach((url, i) => {
+        const el = document.getElementById('insta-' + (i + 1));
+        if (el) el.src = url;
+      });
+    } else {
+      for (let i = 1; i <= 6; i++) {
+        if (s['insta_' + i]) document.getElementById('insta-' + i).src = s['insta_' + i];
+      }
     }
   } catch (e) {
     // keep defaults if settings can't load

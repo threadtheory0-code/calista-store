@@ -9,6 +9,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
+<script>
+!function (w, d, t) {
+  w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
+
+  ttq.load("YOUR_TIKTOK_PIXEL_ID");
+  ttq.page();
+}(window, document, 'ttq');
+</script>
 </head>
 <body>
 
@@ -34,8 +42,8 @@
     </button>
   </div>
   <a href="/index.html">Home</a>
-  <a href="/collection.html">Unstitched Lawn</a>
-  <a href="/collection.html">Sale</a>
+  <a href="/collection.html?view=lawn">Unstitched Lawn</a>
+  <a href="/collection.html?view=sale">Sale</a>
   <a href="/cart.html">Cart</a>
 </nav>
 
@@ -94,6 +102,12 @@ function render() {
     </form>
   `;
 
+  ttEvent('InitiateCheckout', {
+    contents: cart.map(i => ({ content_id: String(i.product_id), content_type: 'product', content_name: i.name, price: i.price, quantity: i.qty })),
+    value: cartTotal(cart),
+    currency: 'PKR'
+  });
+
   document.getElementById('checkout-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
@@ -118,6 +132,11 @@ function render() {
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error('Order failed');
+      ttEvent('CompletePayment', {
+        contents: cart.map(i => ({ content_id: String(i.product_id), content_type: 'product', content_name: i.name, price: i.price, quantity: i.qty })),
+        value: payload.total,
+        currency: 'PKR'
+      });
       localStorage.removeItem('kapra_cart');
       root.innerHTML = `<div class="empty-state">
         <h2 class="display" style="margin-bottom:10px;">Order Placed ✓</h2>

@@ -69,6 +69,22 @@
       <input type="text" id="product-search" placeholder="Search products by name…" style="flex:1; min-width:200px; padding:9px 12px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px;">
       <button class="admin-delete-btn" id="delete-selected-btn" style="display:none;">Delete Selected (<span id="selected-count">0</span>)</button>
     </div>
+    <div id="bulk-tag-bar" style="display:none; background:var(--ivory-warm); padding:12px 16px; margin-bottom:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span style="font-size:13px;"><b id="bulk-selected-count">0</b> selected —</span>
+      <button class="btn btn-outline-dark" data-tag="in_lawn_tab" style="padding:8px 14px; font-size:12px;">Add to Unstitched Lawn</button>
+      <button class="btn btn-outline-dark" data-tag="in_new_arrivals" style="padding:8px 14px; font-size:12px;">Add to New Arrivals</button>
+      <button class="btn btn-outline-dark" data-tag="in_sale_tab" style="padding:8px 14px; font-size:12px;">Add to Sale</button>
+      <select id="bulk-fabric-select" style="padding:8px; font-size:12px; border:1px solid var(--line);">
+        <option value="">Set fabric to…</option>
+        <option value="Lawn">Lawn</option>
+        <option value="Chiffon">Chiffon</option>
+        <option value="Khaddar">Khaddar</option>
+        <option value="Silk">Silk</option>
+        <option value="Organza">Organza</option>
+      </select>
+    </div>
+    <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:10px;">
+      <input type="checkbox" id="select-all-products"> Select all products</label>
     <p style="font-size:12px; color:var(--charcoal-soft); margin-bottom:10px;">
       Use ▲▼ to nudge a product's position, or type a number directly in the position box and press Enter to jump it there. Lower numbers show first.
     </p>
@@ -110,6 +126,14 @@
     <div class="image-preview-row" id="site-logo-preview"></div>
 
     <h3 class="display" style="font-size:20px; margin:32px 0 6px;">Shop by Fabric Tiles</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:6px;">Edit the display name shown for each fabric (e.g. rename "Lawn" to "Summer Lawn '26" for the season) — this only changes the label shown to customers, not how products are filtered.</p>
+    <div class="site-image-grid" style="margin-bottom:18px;">
+      <div><label>Lawn label</label><input type="text" class="fabric-label-input" data-key="fabric_label_Lawn" placeholder="Lawn"></div>
+      <div><label>Chiffon label</label><input type="text" class="fabric-label-input" data-key="fabric_label_Chiffon" placeholder="Chiffon"></div>
+      <div><label>Khaddar label</label><input type="text" class="fabric-label-input" data-key="fabric_label_Khaddar" placeholder="Khaddar"></div>
+      <div><label>Silk label</label><input type="text" class="fabric-label-input" data-key="fabric_label_Silk" placeholder="Silk"></div>
+    </div>
+    <button class="btn btn-outline-dark" id="save-fabric-labels-btn" type="button" style="margin-bottom:10px;">Save Fabric Labels</button>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">One image each for the four homepage fabric tiles.</p>
     <div class="site-image-grid">
       <div><label>Lawn</label><input type="file" class="site-tile-input" data-key="tile_lawn" accept="image/*"><div class="image-preview-row" id="preview-tile_lawn"></div></div>
@@ -119,6 +143,10 @@
     </div>
 
     <h3 class="display" style="font-size:20px; margin:32px 0 6px;">Follow @calista Gallery</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:6px;">
+      <label style="margin-right:16px;"><input type="radio" name="gallery-mode" value="manual" checked> Manual — use the photos I choose below</label>
+      <label><input type="radio" name="gallery-mode" value="random"> Random — rotate automatically from product photos</label>
+    </p>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">Six images for the homepage gallery strip.</p>
     <div class="site-image-grid">
       <div><label>Photo 1</label><input type="file" class="site-tile-input" data-key="insta_1" accept="image/*"><div class="image-preview-row" id="preview-insta_1"></div></div>
@@ -354,9 +382,54 @@ function renderProductsTable(products) {
 function updateSelectedCount() {
   const checked = document.querySelectorAll('.product-select:checked');
   const btn = document.getElementById('delete-selected-btn');
+  const tagBar = document.getElementById('bulk-tag-bar');
   document.getElementById('selected-count').textContent = checked.length;
+  document.getElementById('bulk-selected-count').textContent = checked.length;
   btn.style.display = checked.length > 0 ? '' : 'none';
+  tagBar.style.display = checked.length > 0 ? 'flex' : 'none';
 }
+
+document.getElementById('select-all-products').addEventListener('change', (e) => {
+  document.querySelectorAll('.product-select').forEach(cb => { cb.checked = e.target.checked; });
+  updateSelectedCount();
+});
+
+document.querySelectorAll('#bulk-tag-bar button[data-tag]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const ids = [...document.querySelectorAll('.product-select:checked')].map(cb => Number(cb.value));
+    if (ids.length === 0) return;
+    try {
+      await api('/api/admin/products/bulk-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, field: btn.dataset.tag, value: 1 })
+      });
+      alert(`Added ${ids.length} product(s) to that tab.`);
+      loadProducts();
+    } catch (e) {
+      alert('Failed: ' + e.message);
+    }
+  });
+});
+
+document.getElementById('bulk-fabric-select').addEventListener('change', async (e) => {
+  const value = e.target.value;
+  if (!value) return;
+  const ids = [...document.querySelectorAll('.product-select:checked')].map(cb => Number(cb.value));
+  if (ids.length === 0) return;
+  try {
+    await api('/api/admin/products/bulk-tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, field: 'fabric', value })
+    });
+    alert(`Set fabric to "${value}" for ${ids.length} product(s).`);
+    loadProducts();
+  } catch (err) {
+    alert('Failed: ' + err.message);
+  }
+  e.target.value = '';
+});
 
 document.getElementById('delete-selected-btn').addEventListener('click', async () => {
   const ids = [...document.querySelectorAll('.product-select:checked')].map(cb => Number(cb.value));
@@ -729,6 +802,30 @@ async function saveSetting(key, url) {
   }
 }
 
+document.getElementById('save-fabric-labels-btn').addEventListener('click', async () => {
+  const msg = document.getElementById('site-settings-msg');
+  const payload = {};
+  document.querySelectorAll('.fabric-label-input').forEach(input => {
+    payload[input.dataset.key] = input.value;
+  });
+  try {
+    await api('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    Object.assign(SITE_SETTINGS, payload);
+    msg.textContent = 'Fabric labels saved ✓';
+    msg.style.color = 'var(--gold)';
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+  }
+});
+
+document.querySelectorAll('input[name="gallery-mode"]').forEach(radio => {
+  radio.addEventListener('change', () => saveSetting('insta_gallery_mode', radio.value));
+});
+
 document.getElementById('site-logo-input').addEventListener('change', async (e) => {
   const files = e.target.files;
   if (!files.length) return;
@@ -767,6 +864,11 @@ async function loadSiteSettings() {
       document.getElementById('site-logo-preview').innerHTML = `<div class="image-thumb"><img src="${SITE_SETTINGS.logo_url}"></div>`;
     }
     ['tile_lawn','tile_chiffon','tile_khaddar','tile_silk','insta_1','insta_2','insta_3','insta_4','insta_5','insta_6'].forEach(renderSettingPreview);
+    document.querySelectorAll('.fabric-label-input').forEach(input => {
+      if (SITE_SETTINGS[input.dataset.key]) input.value = SITE_SETTINGS[input.dataset.key];
+    });
+    const galleryModeInput = document.querySelector(`input[name="gallery-mode"][value="${SITE_SETTINGS.insta_gallery_mode || 'manual'}"]`);
+    if (galleryModeInput) galleryModeInput.checked = true;
   } catch (e) {
     // fine if settings haven't been created yet
   }

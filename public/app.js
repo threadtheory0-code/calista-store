@@ -62,6 +62,17 @@ function money(n) {
   return 'Rs. ' + Number(n).toLocaleString('en-PK');
 }
 
+function ttEvent(name, params) {
+  if (window.ttq) {
+    try { ttq.track(name, params); } catch (e) {}
+  }
+}
+
+function cleanDescription(html) {
+  if (!html) return '';
+  return html.replace(/-{3,}/g, '<span class="desc-divider"></span>');
+}
+
 function priceHtml(p) {
   if (p.sale_price) {
     const discount = Math.round((1 - p.sale_price / p.price) * 100);
@@ -96,6 +107,11 @@ function addToCart(product, qty = 1) {
     });
   }
   saveCart(cart);
+  ttEvent('AddToCart', {
+    contents: [{ content_id: String(product.id), content_type: 'product', content_name: product.name, price, quantity: qty }],
+    value: price * qty,
+    currency: 'PKR'
+  });
 }
 
 function updateCartQty(index, qty) {
