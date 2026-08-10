@@ -186,7 +186,7 @@ export default {
         if (!id || !allowed.includes(status)) {
           return json({ error: 'Invalid id or status' }, 400);
         }
-        await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, id).run();
+        await env.DB.prepare("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?").bind(status, id).run();
         return json({ success: true });
       } catch (err) {
         return json({ error: err.message }, 500);
