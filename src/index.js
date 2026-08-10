@@ -123,8 +123,6 @@ export default {
 
     const url = new URL(request.url);
     const path = url.pathname;
-    const url = new URL(request.url);
-    const path = url.pathname;
     const method = request.method;
 
     const isAdminRoute = path === '/admin.html' || path.startsWith('/api/admin/');
