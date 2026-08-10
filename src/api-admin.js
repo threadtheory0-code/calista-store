@@ -54,10 +54,15 @@ const json = (data, status = 200) =>
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 
+// The app sends "Authorization: Bearer <token>". The website's own admin page sends
+// "Basic ..." - a different scheme, so the two never collide.
+// Accepts ADMIN_TOKEN if you set one; otherwise your existing ADMIN_PASSWORD works.
 const authed = (request, env) => {
   const h = request.headers.get('authorization') || '';
-  const token = h.startsWith('Bearer ') ? h.slice(7) : '';
-  return env.ADMIN_TOKEN && token === env.ADMIN_TOKEN;
+  if (!h.startsWith('Bearer ')) return false;
+  const token = h.slice(7).trim();
+  if (!token) return false;
+  return token === env.ADMIN_TOKEN || token === env.ADMIN_PASSWORD;
 };
 
 const now = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
