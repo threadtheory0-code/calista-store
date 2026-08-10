@@ -1,3 +1,44 @@
+function calculateDiscount(discount, cart) {
+  if (!Array.isArray(cart) || cart.length === 0) return { error: 'Cart is empty' };
+  const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const totalQty = cart.reduce((sum, i) => sum + i.qty, 0);
+
+  if (discount.min_cart_value && cartTotal < discount.min_cart_value) {
+    return { error: `Add Rs. ${Math.ceil(discount.min_cart_value - cartTotal)} more to use this code` };
+  }
+
+  if (discount.type === 'percentage_off_order') {
+    return { amount: Math.round(cartTotal * (discount.value / 100)) };
+  }
+
+  if (discount.type === 'fixed_off_order') {
+    return { amount: Math.min(discount.value, cartTotal) };
+  }
+
+  if (discount.type === 'buy_x_get_y') {
+    const buyQty = discount.buy_quantity || 1;
+    const getQty = discount.get_quantity || 1;
+    const groupSize = buyQty + getQty;
+    if (totalQty < groupSize) return { error: `Add ${groupSize - totalQty} more item(s) to unlock this offer` };
+
+    // Expand cart into individual unit prices, cheapest-first, so the discount applies to the lowest-priced eligible units
+    const units = [];
+    cart.forEach(item => { for (let i = 0; i < item.qty; i++) units.push(item.price); });
+    units.sort((a, b) => a - b);
+
+    const eligibleGroups = Math.floor(units.length / groupSize);
+    let discountAmount = 0;
+    for (let g = 0; g < eligibleGroups; g++) {
+      const groupUnits = units.slice(g * groupSize, g * groupSize + groupSize);
+      const freeUnits = groupUnits.slice(0, getQty); // cheapest units in each group get discounted
+      freeUnits.forEach(price => { discountAmount += price * ((discount.get_discount_percent || 100) / 100); });
+    }
+    return { amount: Math.round(discountAmount) };
+  }
+
+  return { error: 'Unsupported discount type' };
+}
+
 function checkAdminAuth(request, env) {
   const auth = request.headers.get('Authorization');
   if (!auth || !auth.startsWith('Basic ')) return false;
@@ -196,18 +237,22 @@ export default {
           }
           const imageUrl = imgList[0] || p.image_url || '';
           const imageUrl2 = imgList[1] || p.image_url_2 || null;
+          const hasPosition = p.position !== undefined && p.position !== '';
           return env.DB.prepare(
             `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, is_active, sort_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products))
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ${hasPosition ? '?' : '(SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products)'})
              ON CONFLICT(slug) DO UPDATE SET
                name=excluded.name, fabric=excluded.fabric, description=excluded.description,
                price=excluded.price, sale_price=excluded.sale_price,
                image_url=excluded.image_url, image_url_2=excluded.image_url_2,
-               images_json=excluded.images_json, stock=excluded.stock`
+               images_json=excluded.images_json, stock=excluded.stock${hasPosition ? ', sort_order=excluded.sort_order' : ''}`
           ).bind(
-            p.name, p.slug, p.fabric || null, p.description || null,
-            Number(p.price), p.sale_price ? Number(p.sale_price) : null,
-            imageUrl, imageUrl2, imgList.length ? JSON.stringify(imgList) : null, Number(p.stock) || 0
+            ...[
+              p.name, p.slug, p.fabric || null, p.description || null,
+              Number(p.price), p.sale_price ? Number(p.sale_price) : null,
+              imageUrl, imageUrl2, imgList.length ? JSON.stringify(imgList) : null, Number(p.stock) || 0,
+              ...(hasPosition ? [Number(p.position)] : [])
+            ]
           );
         });
         await env.DB.batch(stmts);
@@ -279,6 +324,141 @@ export default {
           .prepare('SELECT * FROM subscribers ORDER BY created_at DESC')
           .all();
         return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/fabric-categories' && method === 'GET') {
+      try {
+        const { results } = await env.DB.prepare('SELECT * FROM fabric_categories ORDER BY sort_order ASC').all();
+        return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/fabric-categories' && method === 'GET') {
+      try {
+        const { results } = await env.DB.prepare('SELECT * FROM fabric_categories ORDER BY sort_order ASC').all();
+        return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/fabric-categories' && method === 'POST') {
+      try {
+        const { name } = await request.json();
+        if (!name || !name.trim()) return json({ error: 'Name is required' }, 400);
+        await env.DB.prepare(
+          'INSERT INTO fabric_categories (name, sort_order) VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM fabric_categories))'
+        ).bind(name.trim()).run();
+        return json({ success: true });
+      } catch (err) {
+        if (String(err.message).includes('UNIQUE')) return json({ error: 'That fabric already exists' }, 400);
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/fabric-categories' && method === 'DELETE') {
+      try {
+        const id = url.searchParams.get('id');
+        if (!id) return json({ error: 'Missing id' }, 400);
+        await env.DB.prepare('DELETE FROM fabric_categories WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/discounts' && method === 'GET') {
+      try {
+        const { results } = await env.DB.prepare('SELECT * FROM discounts ORDER BY created_at DESC').all();
+        return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/discounts' && method === 'POST') {
+      try {
+        const d = await request.json();
+        if (!d.title || !d.type) return json({ error: 'Title and type are required' }, 400);
+        await env.DB.prepare(
+          `INSERT INTO discounts (code, title, type, value, buy_quantity, get_quantity, get_discount_percent, min_cart_value, usage_limit, start_date, end_date, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          d.code || null, d.title, d.type, d.value || null, d.buy_quantity || null, d.get_quantity || null,
+          d.get_discount_percent ?? 100, d.min_cart_value || null, d.usage_limit || null,
+          d.start_date || null, d.end_date || null, d.is_active === false ? 0 : 1
+        ).run();
+        return json({ success: true });
+      } catch (err) {
+        if (String(err.message).includes('UNIQUE')) return json({ error: 'That discount code already exists' }, 400);
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/discounts' && method === 'PATCH') {
+      try {
+        const d = await request.json();
+        if (!d.id) return json({ error: 'Missing id' }, 400);
+        await env.DB.prepare(
+          `UPDATE discounts SET code=?, title=?, type=?, value=?, buy_quantity=?, get_quantity=?, get_discount_percent=?,
+           min_cart_value=?, usage_limit=?, start_date=?, end_date=?, is_active=? WHERE id=?`
+        ).bind(
+          d.code || null, d.title, d.type, d.value || null, d.buy_quantity || null, d.get_quantity || null,
+          d.get_discount_percent ?? 100, d.min_cart_value || null, d.usage_limit || null,
+          d.start_date || null, d.end_date || null, d.is_active === false ? 0 : 1, d.id
+        ).run();
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/discounts' && method === 'DELETE') {
+      try {
+        const id = url.searchParams.get('id');
+        if (!id) return json({ error: 'Missing id' }, 400);
+        await env.DB.prepare('DELETE FROM discounts WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // Public: automatic (codeless) active discounts, for auto-applying in cart
+    if (path === '/api/active-promotions' && method === 'GET') {
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const { results } = await env.DB.prepare(
+          `SELECT * FROM discounts WHERE is_active = 1 AND code IS NULL
+           AND (start_date IS NULL OR start_date <= ?) AND (end_date IS NULL OR end_date >= ?)`
+        ).bind(today, today).all();
+        return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // Public: validate + calculate a discount for the current cart
+    if (path === '/api/apply-discount' && method === 'POST') {
+      try {
+        const { code, cart } = await request.json();
+        if (!code) return json({ error: 'Enter a discount code' }, 400);
+        const discount = await env.DB.prepare('SELECT * FROM discounts WHERE code = ? AND is_active = 1').bind(code.trim().toUpperCase()).first();
+        if (!discount) return json({ error: 'Invalid or expired code' }, 400);
+
+        const today = new Date().toISOString().slice(0, 10);
+        if (discount.start_date && discount.start_date > today) return json({ error: 'This code is not active yet' }, 400);
+        if (discount.end_date && discount.end_date < today) return json({ error: 'This code has expired' }, 400);
+        if (discount.usage_limit && discount.used_count >= discount.usage_limit) return json({ error: 'This code has reached its usage limit' }, 400);
+
+        const result = calculateDiscount(discount, cart);
+        if (result.error) return json({ error: result.error }, 400);
+        return json({ success: true, discount_amount: result.amount, title: discount.title, code: discount.code });
       } catch (err) {
         return json({ error: err.message }, 500);
       }
@@ -421,20 +601,39 @@ export default {
     if (path === '/api/order' && method === 'POST') {
       try {
         const body = await request.json();
-        const { customer_name, phone, address, city, items, total } = body;
+        const { customer_name, phone, address, city, items, discount_code } = body;
 
-        if (!customer_name || !phone || !address || !city || !items || !total) {
+        if (!customer_name || !phone || !address || !city || !items || !items.length) {
           return json({ error: 'Missing required fields' }, 400);
         }
 
+        // Always recompute the total server-side — never trust a client-sent total
+        let subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
+        let discountAmount = 0;
+        let appliedCode = null;
+
+        if (discount_code) {
+          const discount = await env.DB.prepare('SELECT * FROM discounts WHERE code = ? AND is_active = 1').bind(discount_code.trim().toUpperCase()).first();
+          if (discount) {
+            const result = calculateDiscount(discount, items);
+            if (!result.error) {
+              discountAmount = result.amount;
+              appliedCode = discount.code;
+              ctx.waitUntil(env.DB.prepare('UPDATE discounts SET used_count = used_count + 1 WHERE id = ?').bind(discount.id).run());
+            }
+          }
+        }
+
+        const total = Math.max(0, subtotal - discountAmount);
+
         await env.DB.prepare(
-          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, status)
-           VALUES (?, ?, ?, ?, ?, ?, 'pending')`
-        ).bind(customer_name, phone, address, city, JSON.stringify(items), total).run();
+          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
+        ).bind(customer_name, phone, address, city, JSON.stringify(items), total, appliedCode, discountAmount).run();
 
         ctx.waitUntil(notifyNewOrder({ customer_name, phone, address, city, items, total }, env));
 
-        return json({ success: true });
+        return json({ success: true, total, discount_amount: discountAmount });
       } catch (err) {
         return json({ error: err.message }, 500);
       }
