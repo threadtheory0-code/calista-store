@@ -54,6 +54,7 @@ data class Product(
     val sale: Int?,
     val stock: Int,
     val active: Boolean,
+    val image: String = "",
 )
 
 data class Stats(
@@ -108,7 +109,9 @@ object Api {
 
     suspend fun orders(since: String? = null, limit: Int = 120): Pair<List<Order>, String> {
         var path = "/api/admin/orders?limit=" + limit
-        if (!since.isNullOrBlank()) path += "&since=" + since
+        if (!since.isNullOrBlank()) {
+            path += "&since=" + java.net.URLEncoder.encode(since, "UTF-8")
+        }
         val o = get(path)
         val arr = o.optJSONArray("orders") ?: JSONArray()
         val list = ArrayList<Order>()
@@ -146,6 +149,7 @@ object Api {
                     sale = if (p.isNull("sale_price")) null else p.optInt("sale_price"),
                     stock = p.optInt("stock"),
                     active = p.optInt("active", 1) == 1,
+                    image = p.optString("image_url", ""),
                 )
             )
         }

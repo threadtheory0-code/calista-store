@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -106,7 +107,12 @@ fun OrderDetailScreen(s: AppState) {
                 Kicker("Items")
                 Spacer(Modifier.height(8.dp))
                 for (li in o.items) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Thumb(s.imageFor(li.name), 44, 56)
+                        Spacer(Modifier.width(11.dp))
                         Column(Modifier.weight(1f)) {
                             Text(li.name, color = T.text, style = body(13))
                             Text("size " + li.size + " · x" + li.qty, color = T.ghost, style = mono(11))

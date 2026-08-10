@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -41,12 +42,97 @@ class AppState(private val ctx: Context) {
     var range by mutableStateOf("7d")
     var openOrderId by mutableStateOf(0L)
 
+    /** Live sync */
+    var live by mutableStateOf(prefs.getBoolean("live", true))
+    var syncing by mutableStateOf(false)
+    var newBadge by mutableStateOf(0)
+    private var cursor = ""
+    private var pollJob: Job? = null
+    private var tick = 0
+
+    /** Bulk selection on the Orders screen */
+    var selected by mutableStateOf<Set<Long>>(emptySet())
+
     init {
         Api.base = storeUrl
         Api.token = adminToken
         if (storeUrl.isNotBlank() && adminToken.isNotBlank()) {
             screen = Screen.Today
             refresh()
+        }
+        Notify.ensure(ctx)
+        startPolling()
+    }
+
+    /** Turns a relative image path from the website into something Coil can load. */
+    fun abs(url: String): String = when {
+        url.isBlank() -> ""
+        url.startsWith("http") -> url
+        else -> storeUrl.trimEnd('/') + "/" + url.trimStart('/')
+    }
+
+    /** Best-effort photo for an order line item, matched against the product list. */
+    fun imageFor(itemName: String): String {
+        val n = itemName.trim().lowercase()
+        if (n.isBlank()) return ""
+        val hit = products.firstOrNull { it.name.trim().lowercase() == n }
+            ?: products.firstOrNull {
+                val pn = it.name.trim().lowercase()
+                pn.isNotBlank() && (n.contains(pn) || pn.contains(n))
+            }
+        return abs(hit?.image ?: "")
+    }
+
+    fun toggleLive() {
+        live = !live
+        prefs.edit().putBoolean("live", live).apply()
+        flash(if (live) "Live sync on · every 5 seconds" else "Live sync paused")
+    }
+
+    private fun startPolling() {
+        pollJob?.cancel()
+        pollJob = scope.launch {
+            while (true) {
+                delay(5000)
+                if (!live || storeUrl.isBlank() || adminToken.isBlank() || loading) continue
+                runCatching { pollOnce() }
+            }
+        }
+    }
+
+    private suspend fun pollOnce() {
+        if (cursor.isBlank()) return
+        syncing = true
+        try {
+            val (list, time) = Api.orders(since = cursor, limit = 60)
+            if (time.isNotBlank()) {
+                cursor = time
+                lastSync = time.take(19).replace("T", " ")
+            }
+            if (list.isNotEmpty()) {
+                val known = orders.map { it.id }.toSet()
+                val fresh = list.filter { it.id !in known }
+                val merged = ArrayList(orders)
+                for (o in list) {
+                    val i = merged.indexOfFirst { it.id == o.id }
+                    if (i >= 0) merged[i] = o else merged.add(o)
+                }
+                orders = merged.sortedByDescending { it.id }
+                if (fresh.isNotEmpty()) {
+                    newBadge += fresh.size
+                    val title = if (fresh.size == 1) "New order " + fresh[0].ref
+                        else fresh.size.toString() + " new orders"
+                    val text = fresh.joinToString("\n") {
+                        it.name + " · " + it.city + " · " + rs(it.total)
+                    }
+                    Notify.newOrder(ctx, title, text)
+                    flash(title)
+                }
+            }
+            tick++
+            if (tick % 12 == 0) loadRest()
+        } finally {
+            syncing = false
         }
     }
 
@@ -70,7 +156,10 @@ class AppState(private val ctx: Context) {
         return m
     }
 
-    fun go(s: Screen) { screen = s }
+    fun go(s: Screen) {
+        screen = s
+        if (s == Screen.Orders || s == Screen.Today) newBadge = 0
+    }
 
     fun openOrder(id: Long, from: Screen) {
         openOrderId = id
@@ -95,6 +184,7 @@ class AppState(private val ctx: Context) {
             try {
                 val (list, time) = Api.orders()
                 orders = list
+                cursor = time
                 lastSync = time.take(19).replace("T", " ")
                 screen = Screen.Today
                 flash("Connected · " + list.size + " orders")
@@ -119,7 +209,9 @@ class AppState(private val ctx: Context) {
             try {
                 val (list, time) = Api.orders()
                 orders = list
+                cursor = time
                 lastSync = time.take(19).replace("T", " ")
+                newBadge = 0
                 loadRest()
             } catch (e: Exception) {
                 flash(e.message ?: "Sync failed")
@@ -160,6 +252,26 @@ class AppState(private val ctx: Context) {
                 orders = before
                 flash(e.message ?: "Could not save")
             }
+        }
+    }
+
+    fun toggleSelect(id: Long) {
+        selected = if (id in selected) selected - id else selected + id
+    }
+
+    fun clearSelection() { selected = emptySet() }
+
+    fun selectAllVisible() { selected = visibleOrders.map { it.id }.toSet() }
+
+    fun bulkStatus(status: String) {
+        val ids = selected.toList()
+        if (ids.isEmpty()) return
+        orders = orders.map { if (it.id in selected) it.copy(status = status) else it }
+        selected = emptySet()
+        scope.launch {
+            var ok = 0
+            for (id in ids) runCatching { Api.setStatus(id, status) }.onSuccess { ok++ }
+            flash(ok.toString() + " of " + ids.size + " orders → " + status)
         }
     }
 

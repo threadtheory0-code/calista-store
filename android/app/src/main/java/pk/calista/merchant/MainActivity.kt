@@ -1,7 +1,12 @@
 package pk.calista.merchant
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,7 +43,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         state = AppState(applicationContext)
+        askForNotifications()
         setContent { CalistaTheme { App(state) } }
+    }
+
+    /** Android 13+ needs the user's yes before the new-order chime can appear. */
+    private fun askForNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+        if (granted != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
+        }
     }
 }
 
@@ -120,12 +136,32 @@ private fun TopBar(s: AppState) {
             }
             Column(Modifier.weight(1f)) {
                 Text(title, color = T.text, style = head(19, FontWeight.Bold))
-                Text(
-                    if (s.loading) "syncing…" else "synced " + s.lastSync,
-                    color = T.ghost,
-                    style = mono(10),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(6.dp).background(
+                            if (!s.live) T.ghost else if (s.syncing || s.loading) T.goldSoft else T.gold
+                        )
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        when {
+                            !s.live -> "paused"
+                            s.loading || s.syncing -> "syncing…"
+                            else -> "live · " + s.lastSync.takeLast(8)
+                        },
+                        color = T.ghost,
+                        style = mono(10),
+                    )
+                }
             }
+            Box(
+                Modifier.size(34.dp).border(1.dp, if (s.live) T.gold else T.line)
+                    .clickable { s.toggleLive() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (s.live) "II" else "▶", color = if (s.live) T.gold else T.faint, style = mono(11))
+            }
+            Spacer(Modifier.width(8.dp))
             Box(
                 Modifier.size(34.dp).border(1.dp, T.line).clickable { s.refresh() },
                 contentAlignment = Alignment.Center,
@@ -157,12 +193,21 @@ private fun BottomRail(s: AppState) {
                     Modifier.weight(1f).clickable { s.go(t.second) }.padding(vertical = 11.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Box(
-                        Modifier.size(22.dp)
-                            .border(1.dp, if (active) T.gold else T.line),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(t.third, color = if (active) T.gold else T.faint, style = mono(11))
+                    Box(contentAlignment = Alignment.Center) {
+                        Box(
+                            Modifier.size(22.dp).border(1.dp, if (active) T.gold else T.line),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(t.third, color = if (active) T.gold else T.faint, style = mono(11))
+                        }
+                        if (t.second == Screen.Orders && s.newBadge > 0) {
+                            Box(
+                                Modifier.align(Alignment.TopEnd).offset(7.dp, (-6).dp)
+                                    .background(T.gold).padding(horizontal = 4.dp),
+                            ) {
+                                Text(s.newBadge.toString(), color = T.bg, style = mono(9))
+                            }
+                        }
                     }
                     Spacer(Modifier.height(5.dp))
                     Kicker(t.first, if (active) T.gold else T.faint)
