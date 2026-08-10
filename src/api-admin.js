@@ -41,6 +41,7 @@ const PCOL = {
   sale_price: 'sale_price',
   stock: 'stock',
   active: 'is_active',
+  image: 'image_url',
 };
 
 const ORDERS = 'orders';
@@ -183,7 +184,7 @@ export async function handleAdmin(request, env) {
       .prepare(
         `SELECT ${PCOL.id} AS id, ${PCOL.name} AS name, ${PCOL.fabric} AS fabric,
                 ${PCOL.price} AS price, ${PCOL.sale_price} AS sale_price,
-                ${PCOL.stock} AS stock, ${PCOL.active} AS active
+                ${PCOL.stock} AS stock, ${PCOL.active} AS active, ${PCOL.image} AS image_url
          FROM ${PRODUCTS} ORDER BY ${PCOL.id} DESC LIMIT ?`
       )
       .bind(limit)
