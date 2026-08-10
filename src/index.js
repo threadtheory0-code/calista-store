@@ -118,6 +118,11 @@ async function notifyNewOrder(order, env) {
 
 export default {
   async fetch(request, env, ctx) {
+    const admin = await handleAdmin(request, env);
+    if (admin) return admin;
+
+    const url = new URL(request.url);
+    const path = url.pathname;
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
