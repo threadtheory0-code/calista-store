@@ -81,7 +81,9 @@ export async function handleAdmin(request, env) {
   const p = url.pathname;
   if (!p.startsWith('/api/admin/')) return null;
 
-  if (!authed(request, env)) return json({ error: 'unauthorized' }, 401);
+  // Not the app's token? Not ours - hand the request back to the existing website
+  // code (admin.html and its own /api/admin routes keep working untouched).
+  if (!authed(request, env)) return null;
 
   const db = env.DB; // must match the binding name in wrangler.toml
   if (!db) return json({ error: 'D1 binding "DB" missing in wrangler.toml' }, 500);
@@ -251,5 +253,6 @@ export async function handleAdmin(request, env) {
     return json(await res.json().catch(() => ({ ok: false })), res.status);
   }
 
-  return json({ error: 'no such admin route' }, 404);
+  // A path we do not implement - let the existing website handle it.
+  return null;
 }
