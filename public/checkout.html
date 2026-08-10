@@ -7,6 +7,7 @@
 <meta name="description" content="Complete your Calista order with cash on delivery.">
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <script>
@@ -60,11 +61,16 @@
 <script>
 function renderSummary() {
   const cart = getCart();
+  const discount = JSON.parse(localStorage.getItem('kapra_discount') || 'null');
+  const subtotal = cartTotal(cart);
+  const discountAmount = discount ? discount.discount_amount : 0;
+  const total = Math.max(0, subtotal - discountAmount);
   return `
     <div class="order-summary">
       ${cart.map(i => `<div class="row"><span>${i.name} x${i.qty}</span><span>${money(i.price * i.qty)}</span></div>`).join('')}
+      ${discount ? `<div class="row" style="color:#1B8A4C;"><span>Discount (${discount.code})</span><span>-${money(discountAmount)}</span></div>` : ''}
       <div class="row" style="font-weight:600; border-top:1px solid var(--line); margin-top:8px; padding-top:10px;">
-        <span>Total (Cash on Delivery)</span><span>${money(cartTotal(cart))}</span>
+        <span>Total (Cash on Delivery)</span><span>${money(total)}</span>
       </div>
     </div>
   `;
@@ -116,13 +122,14 @@ function render() {
     btn.disabled = true;
     btn.textContent = 'Placing order...';
 
+    const discount = JSON.parse(localStorage.getItem('kapra_discount') || 'null');
     const payload = {
       customer_name: form.customer_name.value,
       phone: form.phone.value,
       address: form.address.value,
       city: form.city.value,
       items: cart,
-      total: cartTotal(cart)
+      discount_code: discount ? discount.code : null
     };
 
     try {
@@ -132,12 +139,14 @@ function render() {
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error('Order failed');
+      const orderResult = await res.json();
       ttEvent('CompletePayment', {
         contents: cart.map(i => ({ content_id: String(i.product_id), content_type: 'product', content_name: i.name, price: i.price, quantity: i.qty })),
-        value: payload.total,
+        value: orderResult.total,
         currency: 'PKR'
       });
       localStorage.removeItem('kapra_cart');
+      localStorage.removeItem('kapra_discount');
       root.innerHTML = `<div class="empty-state">
         <h2 class="display" style="margin-bottom:10px;">Order Placed ✓</h2>
         <p>Thank you! We'll call you shortly to confirm your order.</p>

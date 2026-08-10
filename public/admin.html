@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin — Calista</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 </head>
@@ -24,6 +25,9 @@
     <button class="admin-tab" data-tab="banners">Banners</button>
     <button class="admin-tab" data-tab="subscribers">Subscribers</button>
     <button class="admin-tab" data-tab="site">Site</button>
+    <button class="admin-tab" data-tab="fabrics">Fabrics</button>
+    <button class="admin-tab" data-tab="discounts">Discounts</button>
+    <button class="admin-tab" data-tab="dashboard">Dashboard</button>
   </div>
 
   <div id="tab-orders">
@@ -50,7 +54,7 @@
     <form class="admin-form" id="product-form">
       <div><label>Name</label><input name="name" required></div>
       <div><label>Slug (URL-safe, unique)</label><input name="slug" required></div>
-      <div><label>Fabric</label><input name="fabric" placeholder="Lawn / Chiffon / Khaddar / Silk"></div>
+      <div><label>Fabric</label><select name="fabric" id="product-fabric-select"><option value="">Select fabric…</option></select></div>
       <div><label>Regular Price (Rs.)</label><input name="price" type="number" required></div>
       <div><label>Sale Price (Rs., optional)</label><input name="sale_price" type="number"></div>
       <div><label>Stock</label><input name="stock" type="number" value="10" required></div>
@@ -158,6 +162,52 @@
     </div>
     <div id="site-settings-msg" style="font-size:13px; margin-top:16px;"></div>
   </div>
+
+  <div id="tab-fabrics" style="display:none;">
+    <h3 class="display" style="font-size:20px; margin-bottom:6px;">Fabric Categories</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:16px;">These power the collection page filters, the product form dropdown, and bulk-assignment tools. Deleting a fabric here doesn't delete any products — they'll just keep whatever fabric name they already had.</p>
+    <div style="display:flex; gap:10px; margin-bottom:20px;">
+      <input type="text" id="new-fabric-input" placeholder="e.g. Velvet, Net, Cotton" style="flex:1; padding:9px 12px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px;">
+      <button class="btn" id="add-fabric-btn" type="button" style="padding:10px 20px;">Add Fabric</button>
+    </div>
+    <div id="fabrics-root">Loading…</div>
+  </div>
+
+  <div id="tab-discounts" style="display:none;">
+    <h3 class="display" style="font-size:20px; margin-bottom:14px;" id="discount-form-title">Create Discount</h3>
+    <form class="admin-form" id="discount-form">
+      <input type="hidden" name="id">
+      <div><label>Internal Title</label><input name="title" placeholder="Winter Sale 20%" required></div>
+      <div><label>Discount Code (leave blank for automatic, no-code discount)</label><input name="code" placeholder="WINTER20" style="text-transform:uppercase;"></div>
+      <div class="full">
+        <label>Type</label>
+        <select name="type" id="discount-type-select" required>
+          <option value="percentage_off_order">Percentage off entire order</option>
+          <option value="fixed_off_order">Fixed amount off entire order</option>
+          <option value="buy_x_get_y">Buy X, Get Y (at a % off)</option>
+        </select>
+      </div>
+      <div id="discount-value-field"><label>Percentage (e.g. 20 for 20%)</label><input name="value" type="number" step="0.01"></div>
+      <div id="discount-buyx-field" style="display:none;"><label>Buy Quantity (X)</label><input name="buy_quantity" type="number"></div>
+      <div id="discount-gety-field" style="display:none;"><label>Get Quantity (Y)</label><input name="get_quantity" type="number"></div>
+      <div id="discount-getpct-field" style="display:none;"><label>Discount on the Y items (%, 100 = free)</label><input name="get_discount_percent" type="number" value="100"></div>
+      <div><label>Minimum Cart Value (optional)</label><input name="min_cart_value" type="number"></div>
+      <div><label>Usage Limit (optional, blank = unlimited)</label><input name="usage_limit" type="number"></div>
+      <div><label>Start Date (optional)</label><input name="start_date" type="date"></div>
+      <div><label>End Date (optional)</label><input name="end_date" type="date"></div>
+      <button type="submit" class="btn">Create Discount</button>
+      <button type="button" class="admin-delete-btn full" id="discount-cancel-edit" style="display:none;">Cancel edit</button>
+      <div id="discount-form-msg" class="full" style="font-size:13px;"></div>
+    </form>
+
+    <h3 class="display" style="font-size:20px; margin:32px 0 14px;">All Discounts</h3>
+    <div id="discounts-root">Loading…</div>
+  </div>
+
+  <div id="tab-dashboard" style="display:none;">
+    <p style="font-size:12px; color:var(--gold); margin-bottom:16px;">Added by Claude — not explicitly requested, included because a quick sales snapshot is genuinely useful for running the store day to day.</p>
+    <div id="dashboard-root">Loading…</div>
+  </div>
 </div>
 
 <script src="/app.js"></script>
@@ -166,7 +216,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    ['orders','products','banners','subscribers','site'].forEach(name => {
+    ['orders','products','banners','subscribers','site','fabrics','discounts','dashboard'].forEach(name => {
       document.getElementById('tab-' + name).style.display = tab.dataset.tab === name ? '' : 'none';
     });
   });
@@ -525,9 +575,9 @@ function parseCSV(text) {
 
 document.getElementById('download-template-btn').addEventListener('click', () => {
   const imgHeaders = Array.from({length: 13}, (_, i) => i === 0 ? 'image_url' : `image_url_${i+1}`);
-  const headers = ['name','slug','fabric','description','price','sale_price', ...imgHeaders, 'stock'];
+  const headers = ['name','slug','fabric','description','price','sale_price', ...imgHeaders, 'stock', 'position'];
   const imgExample = imgHeaders.map((_, i) => i < 2 ? `/images/placeholder-${i+1}.svg` : '');
-  const example = ['Sample 3PC Lawn','sample-3pc-lawn','Lawn','Example description here','5999','4499', ...imgExample,'20'];
+  const example = ['Sample 3PC Lawn','sample-3pc-lawn','Lawn','Example description here','5999','4499', ...imgExample,'20','1'];
   const csv = headers.join(',') + '\n' + example.join(',') + '\n';
   const blob = new Blob([csv], { type: 'text/csv' });
   const link = document.createElement('a');
@@ -770,6 +820,224 @@ loadProducts();
 loadBannersAdmin();
 loadSubscribers();
 loadSiteSettings();
+loadFabrics();
+loadDiscounts();
+loadDashboard();
+populateFabricSelects();
+
+async function populateFabricSelects() {
+  try {
+    const fabrics = await api('/api/admin/fabric-categories');
+    const productSelect = document.getElementById('product-fabric-select');
+    const bulkSelect = document.getElementById('bulk-fabric-select');
+    const options = fabrics.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+    if (productSelect) productSelect.innerHTML = '<option value="">Select fabric…</option>' + options;
+    if (bulkSelect) bulkSelect.innerHTML = '<option value="">Set fabric to…</option>' + options;
+  } catch (e) {}
+}
+
+/* ---------------- Fabric Categories ---------------- */
+async function loadFabrics() {
+  const root = document.getElementById('fabrics-root');
+  try {
+    const fabrics = await api('/api/admin/fabric-categories');
+    root.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th></th></tr></thead>
+        <tbody>
+          ${fabrics.map(f => `<tr><td>${f.name}</td><td><button class="admin-delete-btn" data-id="${f.id}">Delete</button></td></tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+    root.querySelectorAll('.admin-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this fabric category? Products already using it keep their fabric name.')) return;
+        try {
+          await api('/api/admin/fabric-categories?id=' + btn.dataset.id, { method: 'DELETE' });
+          loadFabrics();
+        } catch (e) { alert('Failed: ' + e.message); }
+      });
+    });
+  } catch (e) {
+    root.innerHTML = `<p style="color:var(--gold);">Could not load: ${e.message}</p>`;
+  }
+}
+
+document.getElementById('add-fabric-btn').addEventListener('click', async () => {
+  const input = document.getElementById('new-fabric-input');
+  if (!input.value.trim()) return;
+  try {
+    await api('/api/admin/fabric-categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: input.value.trim() })
+    });
+    input.value = '';
+    loadFabrics();
+  } catch (e) { alert('Failed: ' + e.message); }
+});
+
+/* ---------------- Discounts ---------------- */
+document.getElementById('discount-type-select').addEventListener('change', (e) => {
+  const t = e.target.value;
+  document.getElementById('discount-value-field').style.display = t === 'buy_x_get_y' ? 'none' : '';
+  document.getElementById('discount-buyx-field').style.display = t === 'buy_x_get_y' ? '' : 'none';
+  document.getElementById('discount-gety-field').style.display = t === 'buy_x_get_y' ? '' : 'none';
+  document.getElementById('discount-getpct-field').style.display = t === 'buy_x_get_y' ? '' : 'none';
+  document.querySelector('#discount-value-field label').textContent = t === 'fixed_off_order' ? 'Amount off (Rs.)' : 'Percentage (e.g. 20 for 20%)';
+});
+
+let editingDiscountId = null;
+
+function resetDiscountForm() {
+  const form = document.getElementById('discount-form');
+  form.reset();
+  form.id.value = '';
+  editingDiscountId = null;
+  document.getElementById('discount-form-title').textContent = 'Create Discount';
+  document.querySelector('#discount-form button[type=submit]').textContent = 'Create Discount';
+  document.getElementById('discount-cancel-edit').style.display = 'none';
+  document.getElementById('discount-type-select').dispatchEvent(new Event('change'));
+}
+document.getElementById('discount-cancel-edit').addEventListener('click', resetDiscountForm);
+
+document.getElementById('discount-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const msg = document.getElementById('discount-form-msg');
+  const payload = {
+    title: form.title.value,
+    code: form.code.value ? form.code.value.trim().toUpperCase() : null,
+    type: form.type.value,
+    value: form.value.value ? Number(form.value.value) : null,
+    buy_quantity: form.buy_quantity.value ? Number(form.buy_quantity.value) : null,
+    get_quantity: form.get_quantity.value ? Number(form.get_quantity.value) : null,
+    get_discount_percent: form.get_discount_percent.value ? Number(form.get_discount_percent.value) : 100,
+    min_cart_value: form.min_cart_value.value ? Number(form.min_cart_value.value) : null,
+    usage_limit: form.usage_limit.value ? Number(form.usage_limit.value) : null,
+    start_date: form.start_date.value || null,
+    end_date: form.end_date.value || null
+  };
+  try {
+    if (editingDiscountId) {
+      payload.id = editingDiscountId;
+      await api('/api/admin/discounts', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      msg.textContent = 'Discount updated ✓';
+    } else {
+      await api('/api/admin/discounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      msg.textContent = 'Discount created ✓';
+    }
+    msg.style.color = 'var(--gold)';
+    resetDiscountForm();
+    loadDiscounts();
+  } catch (err) {
+    msg.textContent = 'Error: ' + err.message;
+    msg.style.color = 'var(--gold)';
+  }
+});
+
+function discountSummary(d) {
+  if (d.type === 'percentage_off_order') return `${d.value}% off order`;
+  if (d.type === 'fixed_off_order') return `Rs. ${d.value} off order`;
+  if (d.type === 'buy_x_get_y') return `Buy ${d.buy_quantity} Get ${d.get_quantity} at ${d.get_discount_percent}% off`;
+  return d.type;
+}
+
+async function loadDiscounts() {
+  const root = document.getElementById('discounts-root');
+  try {
+    const discounts = await api('/api/admin/discounts');
+    if (discounts.length === 0) {
+      root.innerHTML = '<p style="color:var(--charcoal-soft);">No discounts yet.</p>';
+      return;
+    }
+    root.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th>Title</th><th>Code</th><th>Rule</th><th>Used</th><th>Active</th><th></th></tr></thead>
+        <tbody>
+          ${discounts.map(d => `
+            <tr>
+              <td>${d.title}</td>
+              <td>${d.code || '<i>Automatic</i>'}</td>
+              <td>${discountSummary(d)}</td>
+              <td>${d.used_count}${d.usage_limit ? ' / ' + d.usage_limit : ''}</td>
+              <td>${d.is_active ? 'Yes' : 'No'}</td>
+              <td>
+                <button class="admin-delete-btn" data-edit="${d.id}">Edit</button> |
+                <button class="admin-delete-btn" data-delete="${d.id}">Delete</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    root.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this discount?')) return;
+        try { await api('/api/admin/discounts?id=' + btn.dataset.delete, { method: 'DELETE' }); loadDiscounts(); }
+        catch (e) { alert('Failed: ' + e.message); }
+      });
+    });
+    root.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const d = discounts.find(x => x.id === Number(btn.dataset.edit));
+        const form = document.getElementById('discount-form');
+        form.id.value = d.id;
+        form.title.value = d.title;
+        form.code.value = d.code || '';
+        form.type.value = d.type;
+        form.value.value = d.value || '';
+        form.buy_quantity.value = d.buy_quantity || '';
+        form.get_quantity.value = d.get_quantity || '';
+        form.get_discount_percent.value = d.get_discount_percent || 100;
+        form.min_cart_value.value = d.min_cart_value || '';
+        form.usage_limit.value = d.usage_limit || '';
+        form.start_date.value = d.start_date || '';
+        form.end_date.value = d.end_date || '';
+        document.getElementById('discount-type-select').dispatchEvent(new Event('change'));
+        editingDiscountId = d.id;
+        document.getElementById('discount-form-title').textContent = 'Edit Discount';
+        document.querySelector('#discount-form button[type=submit]').textContent = 'Save Changes';
+        document.getElementById('discount-cancel-edit').style.display = '';
+        window.scrollTo({ top: document.getElementById('discount-form').offsetTop - 80, behavior: 'smooth' });
+      });
+    });
+  } catch (e) {
+    root.innerHTML = `<p style="color:var(--gold);">Could not load: ${e.message}</p>`;
+  }
+}
+
+/* ---------------- Dashboard (self-added) ---------------- */
+async function loadDashboard() {
+  const root = document.getElementById('dashboard-root');
+  try {
+    const orders = await api('/api/admin/orders');
+    const revenue = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + o.total, 0);
+    const pending = orders.filter(o => o.status === 'pending').length;
+    const delivered = orders.filter(o => o.status === 'delivered').length;
+    root.innerHTML = `
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; margin-bottom:24px;">
+        <div class="dash-stat"><span class="dash-num">${money(revenue)}</span><span class="dash-label">Total Revenue</span></div>
+        <div class="dash-stat"><span class="dash-num">${orders.length}</span><span class="dash-label">Total Orders</span></div>
+        <div class="dash-stat"><span class="dash-num">${pending}</span><span class="dash-label">Pending Orders</span></div>
+        <div class="dash-stat"><span class="dash-num">${delivered}</span><span class="dash-label">Delivered</span></div>
+      </div>
+      <button class="btn btn-outline-dark" id="export-orders-btn" type="button">Export Orders to CSV</button>
+    `;
+    document.getElementById('export-orders-btn').addEventListener('click', () => {
+      const headers = ['id','customer_name','phone','address','city','total','discount_code','status','created_at'];
+      const rows = orders.map(o => headers.map(h => `"${(o[h] ?? '').toString().replace(/"/g,'""')}"`).join(','));
+      const csv = headers.join(',') + '\n' + rows.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'calista-orders-export.csv';
+      link.click();
+    });
+  } catch (e) {
+    root.innerHTML = `<p style="color:var(--gold);">Could not load: ${e.message}</p>`;
+  }
+}
 
 /* ---------------- Site Settings ---------------- */
 let SITE_SETTINGS = {};

@@ -10,6 +10,7 @@
 <meta property="og:description" content="Embroidered and printed lawn, chiffon, khaddar and silk — cash on delivery across Pakistan.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <script>
@@ -81,10 +82,12 @@
     </div>
     <div class="filter-group">
       <h4>Fabric</h4>
-      <label><input type="checkbox" class="f-fabric" value="Lawn" checked> Lawn</label>
-      <label><input type="checkbox" class="f-fabric" value="Chiffon" checked> Chiffon</label>
-      <label><input type="checkbox" class="f-fabric" value="Khaddar" checked> Khaddar</label>
-      <label><input type="checkbox" class="f-fabric" value="Silk" checked> Silk</label>
+      <div id="fabric-filter-list">
+        <label><input type="checkbox" class="f-fabric" value="Lawn" checked> Lawn</label>
+        <label><input type="checkbox" class="f-fabric" value="Chiffon" checked> Chiffon</label>
+        <label><input type="checkbox" class="f-fabric" value="Khaddar" checked> Khaddar</label>
+        <label><input type="checkbox" class="f-fabric" value="Silk" checked> Silk</label>
+      </div>
     </div>
     <div class="filter-group">
       <h4>Price</h4>
@@ -174,7 +177,7 @@ function cardHtml(p) {
   return `
     <div class="product-card" data-id="${p.id}">
       <a class="product-thumb" href="/product.html?slug=${p.slug}">
-        <img src="${p.image_url}" alt="${p.name}">
+        <img src="${p.image_url}" alt="${p.name}" loading="lazy">
         ${p.image_url_2 ? `<img class="img-alt" src="${p.image_url_2}" alt="${p.name}">` : ''}
         ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
       </a>
@@ -244,6 +247,15 @@ document.getElementById('load-more').addEventListener('click', () => { VISIBLE_C
 
 (async function init() {
   ALL_PRODUCTS = await getProducts();
+
+  try {
+    const fabrics = await (await fetch('/api/fabric-categories')).json();
+    if (Array.isArray(fabrics) && fabrics.length) {
+      document.getElementById('fabric-filter-list').innerHTML = fabrics.map(f =>
+        `<label><input type="checkbox" class="f-fabric" value="${f.name}" checked> ${f.name}</label>`
+      ).join('');
+    }
+  } catch (e) {}
 
   const params = new URLSearchParams(location.search);
   const fabricParam = params.get('fabric');

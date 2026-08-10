@@ -7,6 +7,7 @@
 <meta name="description" content="Review your Calista cart before checkout. Cash on delivery available across Pakistan.">
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <script>
@@ -58,17 +59,22 @@
 
 <script src="/app.js"></script>
 <script>
-function render() {
+let ACTIVE_DISCOUNT = JSON.parse(localStorage.getItem('kapra_discount') || 'null');
+
+async function render() {
   const cart = getCart();
   const root = document.getElementById('cart-root');
   const FREE_DELIVERY_THRESHOLD = 3000;
 
   if (cart.length === 0) {
     root.innerHTML = `<div class="empty-state">Your cart is empty. <a href="/index.html">Start shopping</a></div>`;
+    localStorage.removeItem('kapra_discount');
     return;
   }
 
-  const total = cartTotal(cart);
+  const subtotal = cartTotal(cart);
+  const discountAmount = ACTIVE_DISCOUNT ? ACTIVE_DISCOUNT.discount_amount : 0;
+  const total = Math.max(0, subtotal - discountAmount);
   const remaining = FREE_DELIVERY_THRESHOLD - total;
   const pct = Math.min(100, Math.round((total / FREE_DELIVERY_THRESHOLD) * 100));
   const shippingBar = remaining > 0 ? `
@@ -82,6 +88,19 @@ function render() {
     </div>
   `;
 
+  const discountBox = ACTIVE_DISCOUNT ? `
+    <div class="discount-applied">
+      <span>✓ "${ACTIVE_DISCOUNT.code}" applied — ${ACTIVE_DISCOUNT.title}</span>
+      <button id="remove-discount-btn" type="button">Remove</button>
+    </div>
+  ` : `
+    <div class="discount-code-box">
+      <input type="text" id="discount-code-input" placeholder="Discount code">
+      <button id="apply-discount-btn" type="button">Apply</button>
+    </div>
+    <div id="discount-msg" style="font-size:12px; margin-top:6px;"></div>
+  `;
+
   root.innerHTML = shippingBar + cart.map((item, i) => `
     <div class="cart-row">
       <img src="${item.image_url}" alt="${item.name}">
@@ -92,7 +111,16 @@ function render() {
       <input class="qty-input" type="number" min="1" value="${item.qty}" data-index="${i}">
       <span class="remove-link" data-index="${i}">Remove</span>
     </div>
-  `).join('') + `
+  `).join('') + discountBox + `
+    <div class="cart-total-row" style="font-size:15px; padding:8px 0 0;">
+      <span>Subtotal</span>
+      <span>${money(subtotal)}</span>
+    </div>
+    ${discountAmount > 0 ? `
+    <div class="cart-total-row" style="font-size:15px; padding:4px 0; color:#1B8A4C;">
+      <span>Discount</span>
+      <span>-${money(discountAmount)}</span>
+    </div>` : ''}
     <div class="cart-total-row">
       <span>Total</span>
       <span>${money(total)}</span>
@@ -103,14 +131,47 @@ function render() {
   root.querySelectorAll('.qty-input').forEach(input => {
     input.addEventListener('change', (e) => {
       updateCartQty(Number(e.target.dataset.index), Number(e.target.value));
+      ACTIVE_DISCOUNT = null;
+      localStorage.removeItem('kapra_discount');
       render();
     });
   });
   root.querySelectorAll('.remove-link').forEach(link => {
     link.addEventListener('click', (e) => {
       removeFromCart(Number(e.target.dataset.index));
+      ACTIVE_DISCOUNT = null;
+      localStorage.removeItem('kapra_discount');
       render();
     });
+  });
+
+  document.getElementById('apply-discount-btn')?.addEventListener('click', async () => {
+    const input = document.getElementById('discount-code-input');
+    const msg = document.getElementById('discount-msg');
+    if (!input.value.trim()) return;
+    msg.textContent = 'Checking…';
+    msg.style.color = 'var(--charcoal-soft)';
+    try {
+      const res = await fetch('/api/apply-discount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: input.value.trim(), cart })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Invalid code');
+      ACTIVE_DISCOUNT = { code: data.code, title: data.title, discount_amount: data.discount_amount };
+      localStorage.setItem('kapra_discount', JSON.stringify(ACTIVE_DISCOUNT));
+      render();
+    } catch (err) {
+      msg.textContent = err.message;
+      msg.style.color = '#C0392B';
+    }
+  });
+
+  document.getElementById('remove-discount-btn')?.addEventListener('click', () => {
+    ACTIVE_DISCOUNT = null;
+    localStorage.removeItem('kapra_discount');
+    render();
   });
 }
 render();
