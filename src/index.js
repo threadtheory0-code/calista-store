@@ -1,3 +1,4 @@
+import { handleAdmin } from './api-admin.js';
 function calculateDiscount(discount, cart) {
   if (!Array.isArray(cart) || cart.length === 0) return { error: 'Cart is empty' };
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
