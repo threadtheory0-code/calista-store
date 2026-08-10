@@ -631,8 +631,8 @@ export default {
         const total = Math.max(0, subtotal - discountAmount);
 
         await env.DB.prepare(
-          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
+         `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`
         ).bind(customer_name, phone, address, city, JSON.stringify(items), total, appliedCode, discountAmount).run();
 
         ctx.waitUntil(notifyNewOrder({ customer_name, phone, address, city, items, total }, env));
