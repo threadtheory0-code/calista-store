@@ -184,6 +184,17 @@ img { max-width: 100%; display: block; }
 }
 
 /* ---------- Product grid ---------- */
+.skeleton-card {
+  aspect-ratio: 3/4;
+  background: linear-gradient(90deg, var(--ivory-warm) 25%, #ece9e2 50%, var(--ivory-warm) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
@@ -551,62 +562,53 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
 
 /* ---------- Shop by fabric tiles ---------- */
 .category-tiles {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 34px;
+  flex-wrap: wrap;
 }
 .category-tile {
-  position: relative;
-  aspect-ratio: 3/4;
-  overflow: hidden;
-  background: var(--ivory-warm);
-  border: 1px solid var(--line);
-  transition: box-shadow 0.25s ease, transform 0.25s ease;
-}
-.category-tile:hover { box-shadow: 0 10px 26px rgba(0,0,0,0.18); transform: translateY(-3px); }
-.category-tile img { width: 100%; height: 100%; object-fit: cover; object-position: center; transition: transform 0.5s ease; }
-.category-tile:hover img { transform: scale(1.08); }
-.category-tile::before {
-  content: '';
-  position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(10,10,10,0.05) 0%, rgba(10,10,10,0.15) 55%, rgba(10,10,10,0.8) 100%);
-  z-index: 1;
-}
-.tile-icon-badge {
-  position: absolute; top: 14px; left: 14px; z-index: 2;
-  width: 34px; height: 34px; border-radius: 50%;
-  background: rgba(255,255,255,0.92);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--gold);
-}
-.tile-icon-badge svg { width: 17px; height: 17px; }
-.category-tile .tile-label {
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  padding: 18px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   text-align: center;
-  z-index: 2;
-  color: #FFFFFF;
+  width: 130px;
+}
+.category-tile .tile-photo {
+  position: relative;
+  width: 110px; height: 110px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  transition: border-color 0.25s ease, transform 0.25s ease;
+}
+.category-tile:hover .tile-photo { border-color: var(--gold); transform: translateY(-3px); }
+.category-tile img { width: 100%; height: 100%; object-fit: cover; object-position: top center; transition: transform 0.5s ease; }
+.category-tile:hover img { transform: scale(1.08); }
+.category-tile .tile-label {
+  position: static;
+  padding: 0;
 }
 .tile-label .tile-name {
   font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   letter-spacing: 0.02em;
+  color: var(--charcoal);
   display: block;
 }
 .tile-label .tile-cta {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--gold-soft);
-  margin-top: 6px;
-  opacity: 0; transform: translateY(4px);
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  display: block;
+  font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--gold);
+  margin-top: 3px;
 }
-.category-tile:hover .tile-cta { opacity: 1; transform: translateY(0); }
 @media (max-width: 720px) {
-  .category-tiles { grid-template-columns: repeat(2, 1fr); }
-  .tile-cta { opacity: 1; transform: none; }
+  .category-tiles { gap: 22px; }
+  .category-tile { width: 88px; }
+  .category-tile .tile-photo { width: 80px; height: 80px; }
+  .tile-label .tile-name { font-size: 13px; }
 }
 
 /* ---------- Hero slider ---------- */

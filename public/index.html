@@ -58,7 +58,14 @@
   <a href="/cart.html">Cart</a>
 </nav>
 <section class="hero" id="hero">
-  <!-- filled by loadBanners() -->
+  <div class="hero-slide active" data-slide="0">
+    <div class="hero-slide-content">
+      <div class="hero-eyebrow">New Season</div>
+      <h1>Embroidery that speaks before you do.</h1>
+      <p>Handpicked lawn, chiffon and khaddar, stitched with detail worth a second look.</p>
+      <a href="/collection.html" class="btn">Shop Collection</a>
+    </div>
+  </div>
 </section>
 
 <section class="trust-strip">
@@ -91,24 +98,20 @@
     </div>
     <div class="category-tiles">
       <a class="category-tile" href="/collection.html?fabric=Lawn">
-        <img id="tile-lawn" src="/images/placeholder-1.svg" alt="Lawn">
-        <span class="tile-icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 4v16"/></svg></span>
-        <span class="tile-label"><span class="tile-name" id="tile-lawn-label">Lawn</span><span class="tile-cta">Shop Now →</span></span>
+        <span class="tile-photo"><img id="tile-lawn" src="/images/placeholder-1.svg" alt="Lawn"></span>
+        <span class="tile-label"><span class="tile-name" id="tile-lawn-label">Lawn</span><span class="tile-cta">Shop Now</span></span>
       </a>
       <a class="category-tile" href="/collection.html?fabric=Chiffon">
-        <img id="tile-chiffon" src="/images/placeholder-2.svg" alt="Chiffon">
-        <span class="tile-icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6c3-3 6 3 9 0s6-3 9 0"/><path d="M3 12c3-3 6 3 9 0s6-3 9 0"/><path d="M3 18c3-3 6 3 9 0s6-3 9 0"/></svg></span>
-        <span class="tile-label"><span class="tile-name" id="tile-chiffon-label">Chiffon</span><span class="tile-cta">Shop Now →</span></span>
+        <span class="tile-photo"><img id="tile-chiffon" src="/images/placeholder-2.svg" alt="Chiffon"></span>
+        <span class="tile-label"><span class="tile-name" id="tile-chiffon-label">Chiffon</span><span class="tile-cta">Shop Now</span></span>
       </a>
       <a class="category-tile" href="/collection.html?fabric=Khaddar">
-        <img id="tile-khaddar" src="/images/placeholder-3.svg" alt="Khaddar">
-        <span class="tile-icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
-        <span class="tile-label"><span class="tile-name" id="tile-khaddar-label">Khaddar</span><span class="tile-cta">Shop Now →</span></span>
+        <span class="tile-photo"><img id="tile-khaddar" src="/images/placeholder-3.svg" alt="Khaddar"></span>
+        <span class="tile-label"><span class="tile-name" id="tile-khaddar-label">Khaddar</span><span class="tile-cta">Shop Now</span></span>
       </a>
       <a class="category-tile" href="/collection.html?fabric=Silk">
-        <img id="tile-silk" src="/images/placeholder-9.svg" alt="Silk">
-        <span class="tile-icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c3 4-3 6 0 10s-3 6 0 10"/><path d="M7 2c3 4-3 6 0 10s-3 6 0 10"/><path d="M17 2c3 4-3 6 0 10s-3 6 0 10"/></svg></span>
-        <span class="tile-label"><span class="tile-name" id="tile-silk-label">Silk</span><span class="tile-cta">Shop Now →</span></span>
+        <span class="tile-photo"><img id="tile-silk" src="/images/placeholder-9.svg" alt="Silk"></span>
+        <span class="tile-label"><span class="tile-name" id="tile-silk-label">Silk</span><span class="tile-cta">Shop Now</span></span>
       </a>
     </div>
   </div>
@@ -121,7 +124,8 @@
       <div class="stitch-divider"></div>
     </div>
     <div class="product-grid" id="product-grid">
-      <!-- filled by app.js -->
+      <div class="skeleton-card"></div><div class="skeleton-card"></div>
+      <div class="skeleton-card"></div><div class="skeleton-card"></div>
     </div>
   </div>
 </section>

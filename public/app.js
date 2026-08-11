@@ -173,8 +173,11 @@ function fireConfetti() {
   const colors = ['#B8923E', '#0A0A0A', '#E2D2A6', '#FAFAF8'];
   const originX = window.innerWidth / 2;
   const originY = window.innerHeight * 0.35;
+  const isMobile = window.innerWidth <= 720;
+  const particleCount = isMobile ? 26 : 55;
+  const maxFrames = isMobile ? 55 : 85;
 
-  const particles = Array.from({ length: 55 }, () => ({
+  const particles = Array.from({ length: particleCount }, () => ({
     x: originX + (Math.random() - 0.5) * 60,
     y: originY,
     vx: (Math.random() - 0.5) * 9,
@@ -201,7 +204,7 @@ function fireConfetti() {
       ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
       ctx.restore();
     });
-    if (frame < 85) {
+    if (frame < maxFrames) {
       requestAnimationFrame(animate);
     } else {
       canvas.remove();
