@@ -124,6 +124,19 @@ fun OrderDetailScreen(s: AppState) {
                 RowDivider()
                 Spacer(Modifier.height(8.dp))
                 KeyValue("Total (" + o.payment + ")", rs(o.total), T.goldSoft)
+                Spacer(Modifier.height(12.dp))
+                GoldButton("Send items + photos on WhatsApp", Modifier.fillMaxWidth()) {
+                    s.whatsAppWithPhotos(o, "confirm")
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Builds one picture of the order — every item photo, size and price — " +
+                        "and opens " + o.firstName + "'s chat on " + o.localPhone +
+                        " with the confirmation message as its caption.",
+                    color = T.ghost, style = body(11),
+                )
+                Spacer(Modifier.height(10.dp))
+                LineButton("Share invoice PDF", Modifier.fillMaxWidth()) { s.shareInvoice(o) }
             }
             Spacer(Modifier.height(12.dp))
 

@@ -5,9 +5,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,7 +24,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Checkroom
+import androidx.compose.material.icons.outlined.PeopleAlt
+import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.Storefront
+import androidx.compose.foundation.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -33,8 +41,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -82,6 +95,13 @@ fun App(s: AppState) {
                 Screen.OrderDetail -> OrderDetailScreen(s)
                 Screen.ConfirmQueue -> ConfirmQueueScreen(s)
                 Screen.Products -> ProductsScreen(s)
+                Screen.ProductEdit -> ProductEditScreen(s)
+                Screen.Customers -> CustomersScreen(s)
+                Screen.CustomerDetail -> CustomerDetailScreen(s)
+                Screen.Discounts -> DiscountsScreen(s)
+                Screen.DiscountEdit -> DiscountEditScreen(s)
+                Screen.Banners -> BannersScreen(s)
+                Screen.BannerEdit -> BannerEditScreen(s)
                 Screen.Reports -> ReportsScreen(s)
                 Screen.Settings -> SettingsScreen(s)
                 Screen.Connections -> ConnectionsScreen(s)
@@ -90,7 +110,7 @@ fun App(s: AppState) {
             if (s.toast.isNotBlank()) {
                 Box(
                     Modifier.align(Alignment.BottomCenter).padding(14.dp).fillMaxWidth()
-                        .background(T.elev).border(1.dp, T.gold).padding(12.dp)
+                        .background(T.elev).border(1.dp, T.gold).padding(12.dp),
                 ) {
                     Text(s.toast, color = T.text, style = body(13))
                 }
@@ -104,43 +124,68 @@ fun App(s: AppState) {
 @Composable
 private fun TopBar(s: AppState) {
     val title = when (s.screen) {
-        Screen.Today -> "Calista · Today"
+        Screen.Today -> "Calista"
         Screen.Orders -> "Orders"
         Screen.OrderDetail -> "Order " + (s.openOrder?.ref ?: "")
         Screen.ConfirmQueue -> "Confirm queue"
         Screen.Products -> "Products"
+        Screen.ProductEdit -> if (s.draftId == 0L) "New product" else "Edit product"
+        Screen.Customers -> "Customers"
+        Screen.CustomerDetail -> s.openCustomer?.name ?: "Customer"
+        Screen.Discounts -> "Offers"
+        Screen.DiscountEdit -> if (s.xId == 0L) "New offer" else "Edit offer"
+        Screen.Banners -> "Storefront"
+        Screen.BannerEdit -> if (s.bId == 0L) "New banner" else "Edit banner"
         Screen.Reports -> "Reports"
         Screen.Settings -> "Settings"
         Screen.Connections -> "Store connections"
         else -> ""
     }
-    val showBack = s.screen == Screen.OrderDetail || s.screen == Screen.ConfirmQueue ||
-        s.screen == Screen.Connections
+    val back = when (s.screen) {
+        Screen.OrderDetail -> s.backTo
+        Screen.ConfirmQueue -> Screen.Today
+        Screen.Connections -> Screen.Settings
+        Screen.ProductEdit -> Screen.Products
+        Screen.CustomerDetail -> Screen.Customers
+        Screen.Discounts -> Screen.Today
+        Screen.DiscountEdit -> Screen.Discounts
+        Screen.Banners -> Screen.Today
+        Screen.BannerEdit -> Screen.Banners
+        Screen.Settings -> Screen.Today
+        else -> null
+    }
 
     Column {
         Row(
-            Modifier.fillMaxWidth().background(T.rail).padding(14.dp),
+            Modifier.fillMaxWidth().background(T.rail).padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (showBack) {
-                Box(
-                    Modifier.size(34.dp).border(1.dp, T.line)
-                        .clickable {
-                            s.go(if (s.screen == Screen.Connections) Screen.Settings else s.backTo)
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Filled.ArrowBack, "Back", tint = T.text, modifier = Modifier.size(17.dp))
-                }
-                Spacer(Modifier.width(12.dp))
+            if (back != null) {
+                IconSquare(Icons.Filled.ArrowBack, T.text) { s.go(back) }
+                Spacer(Modifier.width(10.dp))
             }
             Column(Modifier.weight(1f)) {
-                Text(title, color = T.text, style = head(19, FontWeight.Bold))
+                if (s.screen == Screen.Today) {
+                    Image(
+                        painterResource(R.drawable.logo_wordmark),
+                        "Calista",
+                        Modifier.height(24.dp).width(58.dp),
+                    )
+                } else {
+                    Text(title, color = T.text, style = head(19, FontWeight.Bold))
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val dot by animateFloatAsState(
+                        if (s.syncing || s.loading) 1f else 0.55f, label = "dot",
+                    )
                     Box(
                         Modifier.size(6.dp).background(
-                            if (!s.live) T.ghost else if (s.syncing || s.loading) T.goldSoft else T.gold
-                        )
+                            when {
+                                !s.live -> T.ghost
+                                s.syncing || s.loading -> T.goldSoft
+                                else -> T.gold.copy(alpha = dot)
+                            },
+                        ),
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -154,63 +199,96 @@ private fun TopBar(s: AppState) {
                     )
                 }
             }
-            Box(
-                Modifier.size(34.dp).border(1.dp, if (s.live) T.gold else T.line)
-                    .clickable { s.toggleLive() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(if (s.live) "II" else "▶", color = if (s.live) T.gold else T.faint, style = mono(11))
-            }
-            Spacer(Modifier.width(8.dp))
-            Box(
-                Modifier.size(34.dp).border(1.dp, T.line).clickable { s.refresh() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Refresh, "Refresh", tint = T.gold, modifier = Modifier.size(17.dp))
-            }
+            IconSquare(
+                if (s.live) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                if (s.live) T.gold else T.faint,
+                if (s.live) T.gold else T.line,
+            ) { s.toggleLive() }
+            Spacer(Modifier.width(7.dp))
+            IconSquare(Icons.Filled.Refresh, T.gold) { s.refresh() }
+            Spacer(Modifier.width(7.dp))
+            IconSquare(Icons.Filled.Settings, T.muted) { s.go(Screen.Settings) }
         }
         RowDivider()
     }
 }
 
 @Composable
+private fun IconSquare(
+    icon: ImageVector,
+    tint: Color,
+    borderColor: Color = T.line,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier.size(36.dp).border(1.dp, borderColor).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp))
+    }
+}
+
+private data class Tab(val label: String, val screen: Screen, val icon: ImageVector, val also: List<Screen>)
+
+@Composable
 private fun BottomRail(s: AppState) {
     val tabs = listOf(
-        Triple("Today", Screen.Today, "T"),
-        Triple("Orders", Screen.Orders, "O"),
-        Triple("Products", Screen.Products, "P"),
-        Triple("Reports", Screen.Reports, "R"),
-        Triple("More", Screen.Settings, "M"),
+        Tab("Today", Screen.Today, Icons.Outlined.Storefront, listOf(Screen.ConfirmQueue)),
+        Tab("Orders", Screen.Orders, Icons.Outlined.ReceiptLong, listOf(Screen.OrderDetail)),
+        Tab("Products", Screen.Products, Icons.Outlined.Checkroom, listOf(Screen.ProductEdit)),
+        Tab("Customers", Screen.Customers, Icons.Outlined.PeopleAlt, listOf(Screen.CustomerDetail)),
+        Tab("Reports", Screen.Reports, Icons.Outlined.BarChart, emptyList()),
     )
     Column {
         RowDivider()
-        Row(Modifier.fillMaxWidth().background(T.rail), horizontalArrangement = Arrangement.SpaceEvenly) {
+        Row(
+            Modifier.fillMaxWidth().background(T.rail).padding(top = 6.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
             for (t in tabs) {
-                val active = s.screen == t.second ||
-                    (t.second == Screen.Orders && s.screen == Screen.OrderDetail) ||
-                    (t.second == Screen.Settings && s.screen == Screen.Connections)
+                val active = s.screen == t.screen || s.screen in t.also
                 Column(
-                    Modifier.weight(1f).clickable { s.go(t.second) }.padding(vertical = 11.dp),
+                    Modifier.weight(1f).clickable { s.go(t.screen) }.padding(vertical = 5.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Box(
-                            Modifier.size(22.dp).border(1.dp, if (active) T.gold else T.line),
+                            Modifier
+                                .width(46.dp).height(28.dp)
+                                .background(if (active) T.goldTint else Color.Transparent)
+                                .border(1.dp, if (active) T.gold else Color.Transparent),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(t.third, color = if (active) T.gold else T.faint, style = mono(11))
+                            Icon(
+                                t.icon, t.label,
+                                tint = if (active) T.gold else T.faint,
+                                modifier = Modifier.size(19.dp),
+                            )
                         }
-                        if (t.second == Screen.Orders && s.newBadge > 0) {
+                        val badge = when (t.screen) {
+                            Screen.Orders -> s.newBadge
+                            Screen.Today -> s.pendingOrders.size
+                            else -> 0
+                        }
+                        if (badge > 0) {
                             Box(
-                                Modifier.align(Alignment.TopEnd).offset(7.dp, (-6).dp)
-                                    .background(T.gold).padding(horizontal = 4.dp),
+                                Modifier.align(Alignment.TopEnd).offset(9.dp, (-5).dp)
+                                    .background(if (t.screen == Screen.Orders) T.gold else T.warn)
+                                    .padding(horizontal = 4.dp, vertical = 1.dp),
                             ) {
-                                Text(s.newBadge.toString(), color = T.bg, style = mono(9))
+                                Text(
+                                    if (badge > 99) "99+" else badge.toString(),
+                                    color = T.bg, style = mono(9),
+                                )
                             }
                         }
                     }
                     Spacer(Modifier.height(5.dp))
-                    Kicker(t.first, if (active) T.gold else T.faint)
+                    Text(
+                        t.label,
+                        color = if (active) T.gold else T.faint,
+                        style = kicker().copy(letterSpacing = 0.8.sp),
+                    )
                 }
             }
         }

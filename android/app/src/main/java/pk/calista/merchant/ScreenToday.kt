@@ -1,6 +1,7 @@
 package pk.calista.merchant
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +41,24 @@ fun TodayScreen(s: AppState) {
                 Kpi("Return rate", st?.returnRate ?: "—", Modifier.weight(1f))
             }
             Spacer(Modifier.height(16.dp))
+            Kicker("Storefront", T.gold)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Shortcut(
+                    "Offers",
+                    if (s.discounts.isEmpty()) "discount codes" else
+                        s.discounts.count { it.active }.toString() + " running",
+                    Modifier.weight(1f),
+                ) { s.go(Screen.Discounts) }
+                Shortcut(
+                    "Banners",
+                    if (s.banners.isEmpty()) "homepage" else
+                        s.banners.count { it.active }.toString() + " showing",
+                    Modifier.weight(1f),
+                ) { s.go(Screen.Banners) }
+                Shortcut("Add product", "photo + price", Modifier.weight(1f)) { s.newProduct() }
+            }
+            Spacer(Modifier.height(18.dp))
         }
 
         if (st != null && st.series.isNotEmpty()) {
@@ -97,6 +116,25 @@ fun TodayScreen(s: AppState) {
         }
 
         item { Spacer(Modifier.height(28.dp)) }
+    }
+}
+
+@Composable
+private fun Shortcut(
+    label: String,
+    note: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier
+            .border(1.dp, T.line)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 12.dp),
+    ) {
+        Text(label, color = T.goldSoft, style = head(14, FontWeight.Bold))
+        Spacer(Modifier.height(3.dp))
+        Text(note, color = T.ghost, style = body(11), maxLines = 1)
     }
 }
 

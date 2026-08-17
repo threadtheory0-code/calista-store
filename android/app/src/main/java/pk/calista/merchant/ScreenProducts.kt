@@ -53,23 +53,26 @@ fun ProductsScreen(s: AppState) {
             ),
         )
 
-        if (low > 0 || out > 0) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (out > 0) Pill(out.toString() + " out of stock", T.warn)
-                if (low > 0) Pill(low.toString() + " running low", T.gold)
-            }
-        } else {
-            Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (out > 0) Pill(out.toString() + " out of stock", T.warn)
+            if (low > 0) Pill(low.toString() + " running low", T.gold)
+            Spacer(Modifier.weight(1f))
+            Box(
+                Modifier.background(T.gold).clickable { s.newProduct() }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) { Kicker("+ new product", T.bg) }
         }
 
         LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
             items(s.visibleProducts) { p ->
                 Column(
                     Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                        .background(T.surface).border(1.dp, T.line).padding(12.dp),
+                        .background(T.surface).border(1.dp, T.line)
+                        .clickable { s.editProduct(p) }.padding(12.dp),
                 ) {
                     Row(Modifier.fillMaxWidth()) {
                         Thumb(s.abs(p.image), 76, 96)

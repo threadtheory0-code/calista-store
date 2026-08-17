@@ -5,6 +5,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
@@ -55,6 +57,46 @@ data class Product(
     val stock: Int,
     val active: Boolean,
     val image: String = "",
+)
+
+data class Discount(
+    val id: Long,
+    val code: String,
+    val title: String,
+    val type: String,
+    val value: Int?,
+    val minCart: Int?,
+    val usageLimit: Int?,
+    val usedCount: Int,
+    val startDate: String,
+    val endDate: String,
+    val buyQty: Int?,
+    val getQty: Int?,
+    val getPercent: Int,
+    val active: Boolean,
+) {
+    /** Human sentence for the list row — the type codes mean nothing on their own. */
+    val summary: String
+        get() = when (type) {
+            "percentage_off_order" -> (value ?: 0).toString() + "% off the order"
+            "fixed_off_order" -> rs(value ?: 0) + " off the order"
+            "buy_x_get_y" ->
+                "Buy " + (buyQty ?: 1) + " get " + (getQty ?: 1) +
+                    (if (getPercent >= 100) " free" else " at " + getPercent + "% off")
+            else -> type
+        }
+}
+
+data class Banner(
+    val id: Long,
+    val eyebrow: String,
+    val heading: String,
+    val subheading: String,
+    val buttonText: String,
+    val buttonLink: String,
+    val image: String,
+    val sortOrder: Int,
+    val active: Boolean,
 )
 
 data class Stats(
@@ -164,6 +206,13 @@ object Api {
     suspend fun setProduct(id: Long, body: JSONObject) =
         patch("/api/admin/products/" + id, body)
 
+    suspend fun createProduct(body: JSONObject): Long {
+        val o = post("/api/admin/products", body)
+        return o.optLong("id")
+    }
+
+    suspend fun deleteProduct(id: Long) = exec(builder("/api/admin/products/" + id).delete())
+
     suspend fun logWhatsApp(id: Long, template: String) =
         post("/api/admin/orders/" + id + "/whatsapp", JSONObject().put("template", template))
 
@@ -175,6 +224,92 @@ object Api {
     }
 
     suspend fun trackPostEx(cn: String) = get("/api/admin/courier/postex/track/" + cn)
+
+    // ---- image upload ------------------------------------------------------
+
+    /** Posts one photo into the store's R2 bucket. Returns the path, e.g. /uploads/1699…jpg */
+    suspend fun upload(file: java.io.File): String = withContext(Dispatchers.IO) {
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(
+                "files", file.name,
+                file.asRequestBody("image/jpeg".toMediaType()),
+            )
+            .build()
+        val o = exec(builder("/api/admin/app/upload").post(body))
+        val urls = o.optJSONArray("urls") ?: JSONArray()
+        if (urls.length() == 0) throw ApiError("Upload returned no link")
+        urls.optString(0)
+    }
+
+    // ---- discounts ---------------------------------------------------------
+
+    suspend fun discounts(): List<Discount> {
+        val arr = get("/api/admin/app/discounts").optJSONArray("discounts") ?: JSONArray()
+        val list = ArrayList<Discount>()
+        for (i in 0 until arr.length()) {
+            val d = arr.getJSONObject(i)
+            list.add(
+                Discount(
+                    id = d.optLong("id"),
+                    code = if (d.isNull("code")) "" else d.optString("code"),
+                    title = d.optString("title"),
+                    type = d.optString("type"),
+                    value = if (d.isNull("value")) null else d.optInt("value"),
+                    minCart = if (d.isNull("min_cart_value")) null else d.optInt("min_cart_value"),
+                    usageLimit = if (d.isNull("usage_limit")) null else d.optInt("usage_limit"),
+                    usedCount = d.optInt("used_count"),
+                    startDate = if (d.isNull("start_date")) "" else d.optString("start_date"),
+                    endDate = if (d.isNull("end_date")) "" else d.optString("end_date"),
+                    buyQty = if (d.isNull("buy_quantity")) null else d.optInt("buy_quantity"),
+                    getQty = if (d.isNull("get_quantity")) null else d.optInt("get_quantity"),
+                    getPercent = d.optInt("get_discount_percent", 100),
+                    active = d.optInt("is_active", 1) == 1,
+                )
+            )
+        }
+        return list
+    }
+
+    suspend fun createDiscount(body: JSONObject) = post("/api/admin/app/discounts", body)
+    suspend fun setDiscount(id: Long, body: JSONObject) =
+        patch("/api/admin/app/discounts/" + id, body)
+    suspend fun deleteDiscount(id: Long) =
+        exec(builder("/api/admin/app/discounts/" + id).delete())
+
+    // ---- banners -----------------------------------------------------------
+
+    suspend fun banners(): List<Banner> {
+        val arr = get("/api/admin/app/banners").optJSONArray("banners") ?: JSONArray()
+        val list = ArrayList<Banner>()
+        for (i in 0 until arr.length()) {
+            val b = arr.getJSONObject(i)
+            list.add(
+                Banner(
+                    id = b.optLong("id"),
+                    eyebrow = if (b.isNull("eyebrow")) "" else b.optString("eyebrow"),
+                    heading = b.optString("heading"),
+                    subheading = if (b.isNull("subheading")) "" else b.optString("subheading"),
+                    buttonText = if (b.isNull("button_text")) "" else b.optString("button_text"),
+                    buttonLink = if (b.isNull("button_link")) "" else b.optString("button_link"),
+                    image = if (b.isNull("image_url")) "" else b.optString("image_url"),
+                    sortOrder = b.optInt("sort_order"),
+                    active = b.optInt("is_active", 1) == 1,
+                )
+            )
+        }
+        return list
+    }
+
+    suspend fun createBanner(body: JSONObject) = post("/api/admin/app/banners", body)
+    suspend fun setBanner(id: Long, body: JSONObject) =
+        patch("/api/admin/app/banners/" + id, body)
+    suspend fun deleteBanner(id: Long) = exec(builder("/api/admin/app/banners/" + id).delete())
+
+    suspend fun fabrics(): List<String> {
+        val arr = get("/api/admin/app/fabrics").optJSONArray("fabrics") ?: JSONArray()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
 
     // ---- parsing -----------------------------------------------------------
 

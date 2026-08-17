@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -33,9 +34,15 @@ fun ConnectScreen(s: AppState) {
     Column(
         Modifier.fillMaxSize().background(T.bg).verticalScroll(rememberScrollState()).padding(22.dp),
     ) {
-        Spacer(Modifier.height(40.dp))
-        Kicker("Calista · merchant", T.gold)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(48.dp))
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(R.drawable.logo_wordmark),
+            "Calista",
+            Modifier.height(44.dp).width(106.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        Kicker("merchant", T.gold)
+        Spacer(Modifier.height(20.dp))
         Text("Connect store", color = T.text, style = head(34, FontWeight.Bold))
         Spacer(Modifier.height(8.dp))
         Text(
@@ -45,9 +52,9 @@ fun ConnectScreen(s: AppState) {
         )
         Spacer(Modifier.height(26.dp))
 
-        Field("Store address", url, { url = it }, "https://calista.pk")
+        SecretField("Store address", url, { url = it }, "https://calista.pk")
         Spacer(Modifier.height(14.dp))
-        Field("Admin token", token, { token = it }, "the ADMIN_TOKEN worker secret", password = true)
+        SecretField("Admin token", token, { token = it }, "your admin password", password = true)
 
         Spacer(Modifier.height(24.dp))
         GoldButton(
@@ -81,7 +88,7 @@ fun ConnectScreen(s: AppState) {
 }
 
 @Composable
-fun Field(
+private fun SecretField(
     label: String,
     value: String,
     onChange: (String) -> Unit,
