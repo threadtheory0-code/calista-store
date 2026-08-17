@@ -198,15 +198,176 @@ export async function handleAdmin(request, env) {
     const body = await request.json();
     const sets = [];
     const vals = [];
-    for (const k of ['stock', 'price', 'sale_price', 'active']) {
+    for (const k of ['stock', 'price', 'sale_price', 'active', 'name', 'fabric', 'image']) {
       if (body[k] !== undefined) {
         sets.push(`${PCOL[k]} = ?`);
         vals.push(body[k]);
       }
     }
+    if (body.description !== undefined) { sets.push('description = ?'); vals.push(body.description); }
+    if (body.image !== undefined) {
+      sets.push('images_json = ?');
+      vals.push(body.image ? JSON.stringify([body.image]) : null);
+    }
     if (!sets.length) return json({ error: 'nothing to update' }, 400);
     vals.push(mm[1]);
     await db.prepare(`UPDATE ${PRODUCTS} SET ${sets.join(', ')} WHERE ${PCOL.id} = ?`).bind(...vals).run();
+    return json({ ok: true });
+  }
+
+  // POST /api/admin/app/upload   multipart form, field "files"
+  // The site's own /api/admin/upload is Basic-auth only, so the app gets its own path
+  // into the same R2 bucket. Returns { urls: ["/uploads/..."] }.
+  if (p === '/api/admin/app/upload' && m === 'POST') {
+    if (!env.IMAGES) return json({ error: 'R2 binding "IMAGES" missing' }, 500);
+    const form = await request.formData();
+    const files = form.getAll('files');
+    const urls = [];
+    for (const f of files) {
+      if (!f || typeof f === 'string') continue;
+      const raw = (f.name || '').split('.').pop().toLowerCase();
+      const ext = /^[a-z0-9]{2,5}$/.test(raw) ? raw : 'jpg';
+      const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      await env.IMAGES.put(key, await f.arrayBuffer(), {
+        httpMetadata: { contentType: f.type || 'image/jpeg' },
+      });
+      urls.push('/' + key);
+    }
+    if (!urls.length) return json({ error: 'no files received' }, 400);
+    return json({ ok: true, urls });
+  }
+
+  // ── discounts ────────────────────────────────────────────────────────────
+  if (p === '/api/admin/app/discounts' && m === 'GET') {
+    const { results } = await db
+      .prepare('SELECT * FROM discounts ORDER BY is_active DESC, id DESC')
+      .all();
+    return json({ discounts: results || [] });
+  }
+
+  if (p === '/api/admin/app/discounts' && m === 'POST') {
+    const d = await request.json();
+    if (!d.title || !d.type) return json({ error: 'title and type required' }, 400);
+    const r = await db
+      .prepare(
+        `INSERT INTO discounts (code, title, type, value, buy_quantity, get_quantity,
+             get_discount_percent, min_cart_value, usage_limit, start_date, end_date, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        d.code ? String(d.code).trim().toUpperCase() : null,
+        d.title, d.type, d.value || null,
+        d.buy_quantity || null, d.get_quantity || null,
+        d.get_discount_percent == null ? 100 : d.get_discount_percent,
+        d.min_cart_value || null, d.usage_limit || null,
+        d.start_date || null, d.end_date || null,
+        d.is_active === 0 ? 0 : 1
+      )
+      .run();
+    return json({ ok: true, id: r.meta && r.meta.last_row_id });
+  }
+
+  mm = p.match(/^\/api\/admin\/app\/discounts\/(\d+)$/);
+  if (mm && m === 'PATCH') {
+    const b = await request.json();
+    const sets = [];
+    const vals = [];
+    for (const k of ['code', 'title', 'type', 'value', 'min_cart_value',
+                     'usage_limit', 'start_date', 'end_date', 'is_active',
+                     'buy_quantity', 'get_quantity', 'get_discount_percent']) {
+      if (b[k] !== undefined) { sets.push(k + ' = ?'); vals.push(b[k]); }
+    }
+    if (!sets.length) return json({ error: 'nothing to update' }, 400);
+    vals.push(mm[1]);
+    await db.prepare(`UPDATE discounts SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+    return json({ ok: true });
+  }
+
+  if (mm && m === 'DELETE') {
+    await db.prepare('DELETE FROM discounts WHERE id = ?').bind(mm[1]).run();
+    return json({ ok: true });
+  }
+
+  // ── banners ──────────────────────────────────────────────────────────────
+  if (p === '/api/admin/app/banners' && m === 'GET') {
+    const { results } = await db
+      .prepare('SELECT * FROM banners ORDER BY sort_order ASC, id ASC')
+      .all();
+    return json({ banners: results || [] });
+  }
+
+  if (p === '/api/admin/app/banners' && m === 'POST') {
+    const b = await request.json();
+    if (!b.heading) return json({ error: 'heading required' }, 400);
+    const r = await db
+      .prepare(
+        `INSERT INTO banners (eyebrow, heading, subheading, button_text, button_link, image_url, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM banners))`
+      )
+      .bind(
+        b.eyebrow || null, b.heading, b.subheading || null,
+        b.button_text || null, b.button_link || null, b.image_url || null
+      )
+      .run();
+    return json({ ok: true, id: r.meta && r.meta.last_row_id });
+  }
+
+  mm = p.match(/^\/api\/admin\/app\/banners\/(\d+)$/);
+  if (mm && m === 'PATCH') {
+    const b = await request.json();
+    const sets = [];
+    const vals = [];
+    for (const k of ['eyebrow', 'heading', 'subheading', 'button_text',
+                     'button_link', 'image_url', 'sort_order', 'is_active']) {
+      if (b[k] !== undefined) { sets.push(k + ' = ?'); vals.push(b[k]); }
+    }
+    if (!sets.length) return json({ error: 'nothing to update' }, 400);
+    vals.push(mm[1]);
+    await db.prepare(`UPDATE banners SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+    return json({ ok: true });
+  }
+
+  if (mm && m === 'DELETE') {
+    await db.prepare('DELETE FROM banners WHERE id = ?').bind(mm[1]).run();
+    return json({ ok: true });
+  }
+
+  // GET /api/admin/app/fabrics - for the product editor's fabric picker
+  if (p === '/api/admin/app/fabrics' && m === 'GET') {
+    const { results } = await db
+      .prepare('SELECT name FROM fabric_categories ORDER BY sort_order ASC')
+      .all();
+    return json({ fabrics: (results || []).map((r) => r.name) });
+  }
+
+  // POST /api/admin/products   { name, fabric, price, sale_price, stock, image, active }
+  if (p === '/api/admin/products' && m === 'POST') {
+    const b = await request.json();
+    if (!b.name) return json({ error: 'name required' }, 400);
+    const slug = String(b.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      + '-' + Math.random().toString(36).slice(2, 6);
+    const r = await db
+      .prepare(
+        `INSERT INTO ${PRODUCTS} (${PCOL.name}, slug, ${PCOL.fabric}, description, ${PCOL.price},
+             ${PCOL.sale_price}, ${PCOL.stock}, ${PCOL.image}, images_json, ${PCOL.active},
+             sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM ${PRODUCTS}), datetime('now'))`
+      )
+      .bind(
+        b.name, slug, b.fabric || null, b.description || null, b.price || 0,
+        b.sale_price || null, b.stock || 0, b.image || '',
+        b.image ? JSON.stringify([b.image]) : null,
+        b.active === 0 ? 0 : 1
+      )
+      .run();
+    return json({ ok: true, id: r.meta && r.meta.last_row_id, slug });
+  }
+
+  // DELETE /api/admin/products/:id
+  mm = p.match(/^\/api\/admin\/products\/(\d+)$/);
+  if (mm && m === 'DELETE') {
+    await db.prepare(`DELETE FROM ${PRODUCTS} WHERE ${PCOL.id} = ?`).bind(mm[1]).run();
     return json({ ok: true });
   }
 
