@@ -26,6 +26,7 @@
     <button class="admin-tab" data-tab="subscribers">Subscribers</button>
     <button class="admin-tab" data-tab="site">Site</button>
     <button class="admin-tab" data-tab="fabrics">Fabrics</button>
+    <button class="admin-tab" data-tab="menu">Menu</button>
     <button class="admin-tab" data-tab="discounts">Discounts</button>
     <button class="admin-tab" data-tab="dashboard">Dashboard</button>
   </div>
@@ -106,9 +107,14 @@
       <div><label>Button Text</label><input name="button_text" placeholder="Shop Collection"></div>
       <div><label>Button Link</label><input name="button_link" placeholder="/collection.html"></div>
       <div class="full">
-        <label>Banner Image (optional — shows as background; leave empty for solid color)</label>
+        <label>Banner Image — Desktop (optional — shows as background; leave empty for solid color)</label>
         <input type="file" id="banner-image-input" accept="image/*">
         <div class="image-preview-row" id="banner-image-preview"></div>
+      </div>
+      <div class="full">
+        <label>Banner Image — Mobile (optional — used on phones instead of the desktop image above; use a taller, tighter crop so it isn't stretched)</label>
+        <input type="file" id="banner-image-mobile-input" accept="image/*">
+        <div class="image-preview-row" id="banner-image-mobile-preview"></div>
       </div>
       <button type="submit" class="btn">Add Banner</button>
       <button type="button" class="admin-delete-btn full" id="banner-cancel-edit" style="display:none;">Cancel edit</button>
@@ -173,6 +179,44 @@
     <div id="fabrics-root">Loading…</div>
   </div>
 
+  <div id="tab-menu" style="display:none;">
+    <h3 class="display" style="font-size:20px; margin-bottom:6px;">Hamburger Menu Tabs</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:16px;">
+      Create categories here (e.g. "Unstitched Lawn", "Men Kurta") and pick which gender they show under.
+      They sync automatically into the hamburger menu on the live site — customers tap Women or Men, then tap a tab to see only the products you've assigned to it.
+    </p>
+    <h4 class="display" style="font-size:16px; margin-bottom:10px;" id="tab-form-title">Add a Tab</h4>
+    <form class="admin-form" id="navtab-form">
+      <input type="hidden" name="id">
+      <div><label>Tab Label (shown to customers)</label><input name="label" placeholder="Unstitched Lawn" required></div>
+      <div>
+        <label>Shows Under</label>
+        <select name="gender" required>
+          <option value="women">Women</option>
+          <option value="men">Men</option>
+          <option value="all">Both Women &amp; Men</option>
+        </select>
+      </div>
+      <button type="submit" class="btn">Add Tab</button>
+      <button type="button" class="admin-delete-btn full" id="navtab-cancel-edit" style="display:none;">Cancel edit</button>
+      <div id="navtab-form-msg" class="full" style="font-size:13px;"></div>
+    </form>
+
+    <h4 class="display" style="font-size:16px; margin:32px 0 14px;">All Tabs</h4>
+    <div id="navtabs-root">Loading…</div>
+
+    <div id="navtab-assign-panel" style="display:none; margin-top:32px; border-top:1px solid var(--line); padding-top:24px;">
+      <h4 class="display" style="font-size:16px; margin-bottom:6px;">Products in "<span id="navtab-assign-label"></span>"</h4>
+      <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">Check every product that should appear when a customer taps this tab in the hamburger menu.</p>
+      <input type="text" id="navtab-product-search" placeholder="Search products…" style="width:100%; padding:9px 12px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px; margin-bottom:12px;">
+      <div id="navtab-assign-list" style="max-height:380px; overflow-y:auto; border:1px solid var(--line); padding:6px 14px;">Loading…</div>
+      <div style="margin-top:14px; display:flex; align-items:center; gap:14px;">
+        <button class="btn" id="navtab-save-assign-btn" type="button">Save Assigned Products</button>
+        <span id="navtab-assign-msg" style="font-size:13px;"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="tab-discounts" style="display:none;">
     <h3 class="display" style="font-size:20px; margin-bottom:14px;" id="discount-form-title">Create Discount</h3>
     <form class="admin-form" id="discount-form">
@@ -216,7 +260,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    ['orders','products','banners','subscribers','site','fabrics','discounts','dashboard'].forEach(name => {
+    ['orders','products','banners','subscribers','site','fabrics','menu','discounts','dashboard'].forEach(name => {
       document.getElementById('tab-' + name).style.display = tab.dataset.tab === name ? '' : 'none';
     });
   });
@@ -672,6 +716,7 @@ document.getElementById('csv-file-input').addEventListener('change', async (e) =
 
 /* ---------------- Banners ---------------- */
 let bannerImageUrl = null;
+let bannerImageMobileUrl = null;
 let editingBannerId = null;
 
 function renderBannerImagePreview() {
@@ -685,6 +730,20 @@ function renderBannerImagePreview() {
   document.getElementById('banner-image-remove')?.addEventListener('click', () => {
     bannerImageUrl = null;
     renderBannerImagePreview();
+  });
+}
+
+function renderBannerImageMobilePreview() {
+  const box = document.getElementById('banner-image-mobile-preview');
+  box.innerHTML = bannerImageMobileUrl ? `
+    <div class="image-thumb">
+      <img src="${bannerImageMobileUrl}">
+      <button type="button" class="image-thumb-remove" id="banner-image-mobile-remove">×</button>
+    </div>
+  ` : '';
+  document.getElementById('banner-image-mobile-remove')?.addEventListener('click', () => {
+    bannerImageMobileUrl = null;
+    renderBannerImageMobilePreview();
   });
 }
 
@@ -706,6 +765,24 @@ document.getElementById('banner-image-input').addEventListener('change', async (
   e.target.value = '';
 });
 
+document.getElementById('banner-image-mobile-input').addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if (!files.length) return;
+  const msg = document.getElementById('banner-form-msg');
+  msg.textContent = 'Uploading mobile image…';
+  msg.style.color = 'var(--charcoal-soft)';
+  try {
+    const urls = await uploadFiles([files[0]]);
+    bannerImageMobileUrl = urls[0];
+    renderBannerImageMobilePreview();
+    msg.textContent = '';
+  } catch (err) {
+    msg.textContent = 'Upload error: ' + err.message;
+    msg.style.color = 'var(--gold)';
+  }
+  e.target.value = '';
+});
+
 async function loadBannersAdmin() {
   const root = document.getElementById('banners-root');
   try {
@@ -716,12 +793,13 @@ async function loadBannersAdmin() {
     }
     root.innerHTML = `
       <table class="admin-table">
-        <thead><tr><th></th><th>Heading</th><th>Order</th><th>Active</th><th></th></tr></thead>
+        <thead><tr><th></th><th>Heading</th><th>Mobile img</th><th>Order</th><th>Active</th><th></th></tr></thead>
         <tbody>
           ${banners.map(b => `
             <tr>
               <td>${b.image_url ? `<img src="${b.image_url}" style="width:52px;height:34px;object-fit:cover;">` : '—'}</td>
               <td>${b.heading}</td>
+              <td>${b.image_url_mobile ? `<img src="${b.image_url_mobile}" style="width:30px;height:40px;object-fit:cover;">` : '—'}</td>
               <td>${b.sort_order}</td>
               <td>${b.is_active ? 'Yes' : 'No'}</td>
               <td>
@@ -757,7 +835,9 @@ async function loadBannersAdmin() {
         form.button_text.value = b.button_text || '';
         form.button_link.value = b.button_link || '';
         bannerImageUrl = b.image_url || null;
+        bannerImageMobileUrl = b.image_url_mobile || null;
         renderBannerImagePreview();
+        renderBannerImageMobilePreview();
         editingBannerId = b.id;
         document.getElementById('banner-form-title').textContent = 'Edit Banner';
         document.querySelector('#banner-form button[type=submit]').textContent = 'Save Changes';
@@ -775,7 +855,9 @@ function resetBannerForm() {
   form.reset();
   form.id.value = '';
   bannerImageUrl = null;
+  bannerImageMobileUrl = null;
   renderBannerImagePreview();
+  renderBannerImageMobilePreview();
   editingBannerId = null;
   document.getElementById('banner-form-title').textContent = 'Add Banner';
   document.querySelector('#banner-form button[type=submit]').textContent = 'Add Banner';
@@ -795,6 +877,7 @@ document.getElementById('banner-form').addEventListener('submit', async (e) => {
     button_text: form.button_text.value,
     button_link: form.button_link.value,
     image_url: bannerImageUrl,
+    image_url_mobile: bannerImageMobileUrl,
     sort_order: Number(form.sort_order.value) || 0
   };
   try {
@@ -845,12 +928,193 @@ async function loadSubscribers() {
   }
 }
 
+/* ---------------- Menu Tabs (hamburger Men/Women categories) ---------------- */
+let editingNavTabId = null;
+let ALL_NAV_TABS = [];
+let ALL_PRODUCTS_FOR_ASSIGN = [];
+let currentAssignTabId = null;
+let currentAssignedIds = new Set();
+
+async function loadNavTabsAdmin() {
+  const root = document.getElementById('navtabs-root');
+  try {
+    ALL_NAV_TABS = await api('/api/admin/nav-tabs');
+    if (ALL_NAV_TABS.length === 0) {
+      root.innerHTML = '<p style="color:var(--charcoal-soft);">No tabs yet — add one above.</p>';
+      return;
+    }
+    const genderLabel = { women: 'Women', men: 'Men', all: 'Both' };
+    root.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th>Label</th><th>Shows Under</th><th>Active</th><th></th></tr></thead>
+        <tbody>
+          ${ALL_NAV_TABS.map(t => `
+            <tr>
+              <td>${t.label}</td>
+              <td>${genderLabel[t.gender] || t.gender}</td>
+              <td>${t.is_active ? 'Yes' : 'No'}</td>
+              <td>
+                <button class="admin-delete-btn" data-assign="${t.id}">Assign Products</button>
+                &nbsp;|&nbsp;
+                <button class="admin-delete-btn" data-edit="${t.id}">Edit</button>
+                &nbsp;|&nbsp;
+                <button class="admin-delete-btn" data-delete="${t.id}">Delete</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    root.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this tab? It will disappear from the hamburger menu.')) return;
+        try {
+          await api('/api/admin/nav-tabs?id=' + btn.dataset.delete, { method: 'DELETE' });
+          loadNavTabsAdmin();
+        } catch (e) {
+          alert('Failed to delete: ' + e.message);
+        }
+      });
+    });
+    root.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const t = ALL_NAV_TABS.find(x => x.id === Number(btn.dataset.edit));
+        const form = document.getElementById('navtab-form');
+        form.id.value = t.id;
+        form.label.value = t.label;
+        form.gender.value = t.gender;
+        editingNavTabId = t.id;
+        document.getElementById('tab-form-title').textContent = 'Edit Tab';
+        document.querySelector('#navtab-form button[type=submit]').textContent = 'Save Changes';
+        document.getElementById('navtab-cancel-edit').style.display = '';
+        window.scrollTo({ top: form.offsetTop - 80, behavior: 'smooth' });
+      });
+    });
+    root.querySelectorAll('[data-assign]').forEach(btn => {
+      btn.addEventListener('click', () => openAssignPanel(Number(btn.dataset.assign)));
+    });
+  } catch (e) {
+    root.innerHTML = `<p style="color:var(--gold);">Could not load tabs: ${e.message}</p>`;
+  }
+}
+
+function slugify(label) {
+  return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
+function resetNavTabForm() {
+  const form = document.getElementById('navtab-form');
+  form.reset();
+  form.id.value = '';
+  editingNavTabId = null;
+  document.getElementById('tab-form-title').textContent = 'Add a Tab';
+  document.querySelector('#navtab-form button[type=submit]').textContent = 'Add Tab';
+  document.getElementById('navtab-cancel-edit').style.display = 'none';
+}
+
+document.getElementById('navtab-cancel-edit').addEventListener('click', resetNavTabForm);
+
+document.getElementById('navtab-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const msg = document.getElementById('navtab-form-msg');
+  const label = form.label.value.trim();
+  const payload = { label, slug: slugify(label), gender: form.gender.value };
+  try {
+    if (editingNavTabId) {
+      payload.id = editingNavTabId;
+      payload.sort_order = (ALL_NAV_TABS.find(t => t.id === editingNavTabId) || {}).sort_order || 0;
+      await api('/api/admin/nav-tabs', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      msg.textContent = 'Tab updated ✓';
+    } else {
+      await api('/api/admin/nav-tabs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      msg.textContent = 'Tab added ✓';
+    }
+    msg.style.color = 'var(--gold)';
+    resetNavTabForm();
+    loadNavTabsAdmin();
+  } catch (err) {
+    msg.textContent = 'Error: ' + err.message;
+    msg.style.color = 'var(--gold)';
+  }
+});
+
+async function openAssignPanel(tabId) {
+  const tab = ALL_NAV_TABS.find(t => t.id === tabId);
+  if (!tab) return;
+  currentAssignTabId = tabId;
+  document.getElementById('navtab-assign-label').textContent = tab.label;
+  document.getElementById('navtab-assign-panel').style.display = '';
+  document.getElementById('navtab-assign-list').innerHTML = 'Loading…';
+  document.getElementById('navtab-assign-msg').textContent = '';
+
+  try {
+    if (ALL_PRODUCTS_FOR_ASSIGN.length === 0) {
+      ALL_PRODUCTS_FOR_ASSIGN = await api('/api/admin/products');
+    }
+    const assignedIds = await api('/api/admin/nav-tabs/products?tab_id=' + tabId);
+    currentAssignedIds = new Set(assignedIds);
+    renderAssignList('');
+    window.scrollTo({ top: document.getElementById('navtab-assign-panel').offsetTop - 80, behavior: 'smooth' });
+  } catch (e) {
+    document.getElementById('navtab-assign-list').innerHTML = `<p style="color:var(--gold);">Could not load products: ${e.message}</p>`;
+  }
+}
+
+function renderAssignList(filterText) {
+  const box = document.getElementById('navtab-assign-list');
+  const q = filterText.trim().toLowerCase();
+  const list = ALL_PRODUCTS_FOR_ASSIGN.filter(p => !q || p.name.toLowerCase().includes(q));
+  if (list.length === 0) {
+    box.innerHTML = '<p style="color:var(--charcoal-soft); padding:10px 0;">No products match.</p>';
+    return;
+  }
+  box.innerHTML = list.map(p => `
+    <label style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px;">
+      <input type="checkbox" class="navtab-assign-cb" value="${p.id}" ${currentAssignedIds.has(p.id) ? 'checked' : ''}>
+      <img src="${p.image_url}" style="width:34px; height:44px; object-fit:cover;">
+      <span>${p.name}</span>
+    </label>
+  `).join('');
+  box.querySelectorAll('.navtab-assign-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = Number(cb.value);
+      if (cb.checked) currentAssignedIds.add(id); else currentAssignedIds.delete(id);
+    });
+  });
+}
+
+document.getElementById('navtab-product-search').addEventListener('input', (e) => renderAssignList(e.target.value));
+
+document.getElementById('navtab-save-assign-btn').addEventListener('click', async () => {
+  const msg = document.getElementById('navtab-assign-msg');
+  if (!currentAssignTabId) return;
+  msg.textContent = 'Saving…';
+  msg.style.color = 'var(--charcoal-soft)';
+  try {
+    await api('/api/admin/nav-tabs/assign', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tab_id: currentAssignTabId, product_ids: [...currentAssignedIds] })
+    });
+    msg.textContent = `Saved — ${currentAssignedIds.size} product(s) assigned ✓`;
+    msg.style.color = 'var(--gold)';
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+    msg.style.color = 'var(--gold)';
+  }
+});
+
 loadOrders();
 loadProducts();
 loadBannersAdmin();
 loadSubscribers();
 loadSiteSettings();
 loadFabrics();
+loadNavTabsAdmin();
 loadDiscounts();
 loadDashboard();
 populateFabricSelects();

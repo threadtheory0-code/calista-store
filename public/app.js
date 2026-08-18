@@ -142,6 +142,9 @@ document.addEventListener('DOMContentLoaded', () => {
   updateCartBadge();
   initMobileMenu();
   applySiteLogo();
+  initHeaderCartIcon();
+  ensureSearchOverlay();
+  initFabricSwipe();
 });
 
 async function applySiteLogo() {
@@ -163,6 +166,103 @@ async function applySiteLogo() {
 
 /* ---------------- Mobile nav drawer ---------------- */
 /* ---------------- Confetti burst ---------------- */
+/* ---------------- Slide-out cart drawer ---------------- */
+function ensureCartDrawer() {
+  if (document.getElementById('cart-drawer')) return;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'cart-drawer-backdrop';
+  backdrop.id = 'cart-drawer-backdrop';
+  const drawer = document.createElement('div');
+  drawer.className = 'cart-drawer';
+  drawer.id = 'cart-drawer';
+  drawer.innerHTML = `
+    <div class="cart-drawer-head">
+      <h3>Shopping Bag</h3>
+      <button class="cart-drawer-close" id="cart-drawer-close" aria-label="Close">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="cart-drawer-body" id="cart-drawer-body"></div>
+    <div class="cart-drawer-foot" id="cart-drawer-foot"></div>
+  `;
+  document.body.appendChild(backdrop);
+  document.body.appendChild(drawer);
+  backdrop.addEventListener('click', closeCartDrawer);
+  document.getElementById('cart-drawer-close').addEventListener('click', closeCartDrawer);
+}
+
+function closeCartDrawer() {
+  document.getElementById('cart-drawer')?.classList.remove('open');
+  document.getElementById('cart-drawer-backdrop')?.classList.remove('open');
+}
+
+function renderCartDrawer() {
+  const cart = getCart();
+  const body = document.getElementById('cart-drawer-body');
+  const foot = document.getElementById('cart-drawer-foot');
+  const FREE_DELIVERY_THRESHOLD = 3000;
+
+  if (cart.length === 0) {
+    body.innerHTML = `<div class="cart-drawer-empty">Your bag is empty.</div>`;
+    foot.innerHTML = `<button class="cart-drawer-continue" onclick="closeCartDrawer()">Continue Shopping</button>`;
+    return;
+  }
+
+  const subtotal = cartTotal(cart);
+  const remaining = FREE_DELIVERY_THRESHOLD - subtotal;
+  const shippingHtml = remaining > 0
+    ? `<div class="cart-drawer-shipping"><p>Add <b>${money(remaining)}</b> more for FREE delivery!</p></div>`
+    : `<div class="cart-drawer-shipping unlocked"><p>✓ You've earned FREE delivery!</p></div>`;
+
+  body.innerHTML = shippingHtml + cart.map((item, i) => `
+    <div class="cart-drawer-item">
+      <img src="${item.image_url}" alt="${item.name}">
+      <div>
+        <div class="name">${item.name}</div>
+        <div class="price">${money(item.price)}</div>
+        <div class="cart-drawer-qty">
+          <button data-i="${i}" data-d="-1">−</button>
+          <span>${item.qty}</span>
+          <button data-i="${i}" data-d="1">+</button>
+        </div>
+      </div>
+      <button class="cart-drawer-remove" data-remove="${i}" aria-label="Remove">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+      </button>
+    </div>
+  `).join('');
+
+  foot.innerHTML = `
+    <div class="cart-drawer-subtotal"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+    <a href="/checkout.html" class="btn">Checkout</a>
+    <a href="/cart.html" class="btn" style="background:transparent; border:1px solid var(--ink-green); color:var(--ink-green);">View Cart</a>
+  `;
+
+  body.querySelectorAll('.cart-drawer-qty button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.i);
+      const delta = Number(btn.dataset.d);
+      updateCartQty(i, cart[i].qty + delta);
+      renderCartDrawer();
+    });
+  });
+  body.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      removeFromCart(Number(btn.dataset.remove));
+      renderCartDrawer();
+    });
+  });
+}
+
+function openCartDrawer() {
+  ensureCartDrawer();
+  renderCartDrawer();
+  document.getElementById('cart-drawer').classList.add('open');
+  document.getElementById('cart-drawer-backdrop').classList.add('open');
+}
+
+document.addEventListener('DOMContentLoaded', ensureCartDrawer);
+
 function fireConfetti() {
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9999;';
@@ -227,6 +327,178 @@ function initMobileMenu() {
   closeBtn?.addEventListener('click', closeDrawer);
   backdrop.addEventListener('click', closeDrawer);
   drawer.querySelectorAll('a').forEach(a => a.addEventListener('click', closeDrawer));
+
+  loadNavTabs(closeDrawer);
+}
+
+/* ---------------- Dynamic hamburger menu: Men / Women tabs ---------------- */
+let NAV_TABS_CACHE = null;
+
+async function loadNavTabs(onLinkClick) {
+  const switcher = document.getElementById('drawer-gender-switch');
+  const linksBox = document.getElementById('drawer-links');
+  if (!linksBox) return;
+
+  try {
+    if (!NAV_TABS_CACHE) {
+      const res = await fetch('/api/nav-tabs');
+      NAV_TABS_CACHE = await res.json();
+    }
+    const tabs = Array.isArray(NAV_TABS_CACHE) ? NAV_TABS_CACHE : [];
+    const hasMen = tabs.some(t => t.gender === 'men');
+    const hasWomen = tabs.some(t => t.gender === 'women');
+
+    if (!hasMen || !switcher) {
+      // Only one gender in use (or switch not present on this page) — no toggle needed
+      switcher && (switcher.style.display = hasMen && hasWomen ? 'flex' : 'none');
+    } else {
+      switcher.style.display = 'flex';
+    }
+
+    function renderGender(gender) {
+      const list = tabs.filter(t => t.gender === gender || t.gender === 'all');
+      if (list.length === 0) {
+        linksBox.innerHTML = '<div class="drawer-links-empty">No categories added yet.</div>';
+        return;
+      }
+      linksBox.innerHTML = list.map(t =>
+        `<a class="drawer-tab-link" href="/collection.html?tab=${encodeURIComponent(t.slug)}">${t.label}</a>`
+      ).join('');
+      linksBox.querySelectorAll('a').forEach(a => a.addEventListener('click', () => onLinkClick && onLinkClick()));
+    }
+
+    let currentGender = hasWomen ? 'women' : (hasMen ? 'men' : 'all');
+    renderGender(currentGender);
+
+    if (switcher) {
+      switcher.querySelectorAll('button').forEach(b => {
+        b.classList.toggle('active', b.dataset.gender === currentGender);
+        b.addEventListener('click', () => {
+          switcher.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+          b.classList.add('active');
+          renderGender(b.dataset.gender);
+        });
+      });
+    }
+  } catch (e) {
+    linksBox.innerHTML = '';
+  }
+}
+
+/* ---------------- Header cart icon: open the slide-out drawer ---------------- */
+function initHeaderCartIcon() {
+  const link = document.getElementById('header-cart-btn');
+  if (!link) return;
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    openCartDrawer();
+  });
+}
+
+/* ---------------- Search overlay ---------------- */
+function ensureSearchOverlay() {
+  const trigger = document.getElementById('header-search-btn');
+  if (!trigger || document.getElementById('search-overlay')) {
+    trigger?.addEventListener('click', openSearchOverlay);
+    return;
+  }
+  const backdrop = document.createElement('div');
+  backdrop.className = 'search-overlay-backdrop';
+  backdrop.id = 'search-overlay-backdrop';
+  const overlay = document.createElement('div');
+  overlay.className = 'search-overlay';
+  overlay.id = 'search-overlay';
+  overlay.innerHTML = `
+    <div class="search-overlay-bar">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" class="search-overlay-input" id="search-overlay-input" placeholder="Search suits, fabrics..." autocomplete="off">
+      <button class="search-overlay-close" id="search-overlay-close" aria-label="Close search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="search-overlay-results" id="search-overlay-results"></div>
+  `;
+  document.body.appendChild(backdrop);
+  document.body.appendChild(overlay);
+
+  backdrop.addEventListener('click', closeSearchOverlay);
+  document.getElementById('search-overlay-close').addEventListener('click', closeSearchOverlay);
+
+  const input = document.getElementById('search-overlay-input');
+  let debounceTimer;
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => runSearch(input.value), 180);
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSearchOverlay(); });
+
+  trigger.addEventListener('click', openSearchOverlay);
+}
+
+async function runSearch(q) {
+  const results = document.getElementById('search-overlay-results');
+  const query = q.trim().toLowerCase();
+  if (!query) { results.innerHTML = ''; return; }
+  const products = await getProducts();
+  const matches = products.filter(p =>
+    p.name.toLowerCase().includes(query) ||
+    (p.fabric || '').toLowerCase().includes(query) ||
+    (p.description || '').toLowerCase().includes(query)
+  ).slice(0, 12);
+
+  if (matches.length === 0) {
+    results.innerHTML = `<div class="search-overlay-empty">No products found for "${q}"</div>`;
+    return;
+  }
+  results.innerHTML = matches.map(p => `
+    <a class="search-result-card" href="/product.html?slug=${p.slug}">
+      <img src="${p.image_url}" alt="${p.name}" loading="lazy">
+      <div class="search-result-name">${p.name}</div>
+    </a>
+  `).join('');
+}
+
+function openSearchOverlay() {
+  document.getElementById('search-overlay')?.classList.add('open');
+  document.getElementById('search-overlay-backdrop')?.classList.add('open');
+  setTimeout(() => document.getElementById('search-overlay-input')?.focus(), 150);
+}
+
+function closeSearchOverlay() {
+  document.getElementById('search-overlay')?.classList.remove('open');
+  document.getElementById('search-overlay-backdrop')?.classList.remove('open');
+}
+
+/* ---------------- Shop by Fabric — swipe row (touch + mouse drag + arrows) ---------------- */
+function initFabricSwipe() {
+  const track = document.getElementById('fabric-swipe-track');
+  if (!track || track.dataset.swipeBound) return;
+  track.dataset.swipeBound = '1';
+
+  let isDown = false, startX = 0, scrollStart = 0;
+
+  track.addEventListener('mousedown', (e) => {
+    isDown = true;
+    track.classList.add('dragging');
+    startX = e.pageX;
+    scrollStart = track.scrollLeft;
+  });
+  window.addEventListener('mouseup', () => { isDown = false; track.classList.remove('dragging'); });
+  window.addEventListener('mousemove', (e) => {
+    if (!isDown) return;
+    e.preventDefault();
+    track.scrollLeft = scrollStart - (e.pageX - startX);
+  });
+
+  const prevBtn = document.getElementById('fabric-swipe-prev');
+  const nextBtn = document.getElementById('fabric-swipe-next');
+  const scrollByTile = (dir) => {
+    const tile = track.querySelector('.category-tile');
+    const amount = tile ? tile.getBoundingClientRect().width + 26 : 200;
+    track.scrollBy({ left: dir * amount * 2, behavior: 'smooth' });
+  };
+  prevBtn?.addEventListener('click', () => scrollByTile(-1));
+  nextBtn?.addEventListener('click', () => scrollByTile(1));
 }
 
 /* ---------------- Toast confirmation ---------------- */

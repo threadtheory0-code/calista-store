@@ -29,17 +29,20 @@
 <header class="site-header">
   <div class="announce-bar">Free Delivery Over Rs. 3,000 &nbsp;|&nbsp; Cash on Delivery Available</div>
   <div class="header-inner container">
-    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" src="" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
-    <ul class="nav-links">
-      <li><a href="/collection.html?view=lawn">Unstitched Lawn</a></li>
-      <li><a href="/collection.html?view=new">New Arrivals</a></li>
-      <li><a href="/collection.html?view=sale">Sale</a></li>
-    </ul>
-    <div class="header-icons">
+    <div class="header-left">
       <button class="mobile-menu-toggle" id="mobile-menu-btn" aria-label="Open menu">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
-      <a href="/cart.html">Cart <span class="cart-count">0</span></a>
+    </div>
+    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" src="" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
+    <div class="header-icons">
+      <button class="header-icon-btn" id="header-search-btn" aria-label="Search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+      <a href="/cart.html" class="header-cart-link" id="header-cart-btn" aria-label="Cart">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        <span class="cart-count">0</span>
+      </a>
     </div>
   </div>
 </header>
@@ -52,10 +55,13 @@
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   </div>
-  <a href="/index.html">Home</a>
-  <a href="/collection.html?view=lawn">Unstitched Lawn</a>
-  <a href="/collection.html?view=sale">Sale</a>
-  <a href="/cart.html">Cart</a>
+  <div class="drawer-gender-switch" id="drawer-gender-switch">
+    <button type="button" data-gender="women">Women</button>
+    <button type="button" data-gender="men">Men</button>
+  </div>
+  <a href="/index.html" class="drawer-tab-link">Home</a>
+  <div class="drawer-links" id="drawer-links"></div>
+  <a href="/cart.html" class="drawer-tab-link">Cart</a>
 </nav>
 <section class="hero" id="hero">
   <div class="hero-slide active" data-slide="0">
@@ -96,23 +102,19 @@
       <h2>Shop by Fabric</h2>
       <div class="stitch-divider"></div>
     </div>
-    <div class="category-tiles">
-      <a class="category-tile" href="/collection.html?fabric=Lawn">
-        <span class="tile-photo"><img id="tile-lawn" src="/images/placeholder-1.svg" alt="Lawn"></span>
-        <span class="tile-label"><span class="tile-name" id="tile-lawn-label">Lawn</span><span class="tile-cta">Shop Now</span></span>
-      </a>
-      <a class="category-tile" href="/collection.html?fabric=Chiffon">
-        <span class="tile-photo"><img id="tile-chiffon" src="/images/placeholder-2.svg" alt="Chiffon"></span>
-        <span class="tile-label"><span class="tile-name" id="tile-chiffon-label">Chiffon</span><span class="tile-cta">Shop Now</span></span>
-      </a>
-      <a class="category-tile" href="/collection.html?fabric=Khaddar">
-        <span class="tile-photo"><img id="tile-khaddar" src="/images/placeholder-3.svg" alt="Khaddar"></span>
-        <span class="tile-label"><span class="tile-name" id="tile-khaddar-label">Khaddar</span><span class="tile-cta">Shop Now</span></span>
-      </a>
-      <a class="category-tile" href="/collection.html?fabric=Silk">
-        <span class="tile-photo"><img id="tile-silk" src="/images/placeholder-9.svg" alt="Silk"></span>
-        <span class="tile-label"><span class="tile-name" id="tile-silk-label">Silk</span><span class="tile-cta">Shop Now</span></span>
-      </a>
+    <div class="fabric-swipe-wrap">
+      <button class="fabric-swipe-arrow prev" id="fabric-swipe-prev" aria-label="Scroll left">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="category-tiles" id="fabric-swipe-track">
+        <div class="skeleton-card" style="width:110px; height:150px; border-radius:50%; flex:0 0 auto;"></div>
+        <div class="skeleton-card" style="width:110px; height:150px; border-radius:50%; flex:0 0 auto;"></div>
+        <div class="skeleton-card" style="width:110px; height:150px; border-radius:50%; flex:0 0 auto;"></div>
+        <div class="skeleton-card" style="width:110px; height:150px; border-radius:50%; flex:0 0 auto;"></div>
+      </div>
+      <button class="fabric-swipe-arrow next" id="fabric-swipe-next" aria-label="Scroll right">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
     </div>
   </div>
 </section>
@@ -226,9 +228,13 @@ async function loadBanners() {
     const banners = await res.json();
     if (!Array.isArray(banners) || banners.length === 0) return;
 
-    hero.innerHTML = banners.map((b, i) => `
+    hero.innerHTML = banners.map((b, i) => {
+      const styleParts = [];
+      if (b.image_url) styleParts.push(`--bg-desktop:url('${b.image_url}')`);
+      if (b.image_url_mobile) styleParts.push(`--bg-mobile:url('${b.image_url_mobile}')`);
+      return `
       <div class="hero-slide ${i === 0 ? 'active' : ''}" data-slide="${i}"
-           ${b.image_url ? `style="background-image:url('${b.image_url}')"` : ''}>
+           ${styleParts.length ? `style="${styleParts.join(';')}"` : ''}>
         ${b.image_url ? '<div class="hero-overlay"></div>' : ''}
         <div class="hero-slide-content">
           ${b.eyebrow ? `<div class="hero-eyebrow">${b.eyebrow}</div>` : ''}
@@ -237,7 +243,8 @@ async function loadBanners() {
           ${b.button_text ? `<a href="${b.button_link || '#'}" class="btn">${b.button_text}</a>` : ''}
         </div>
       </div>
-    `).join('') + (banners.length > 1 ? `
+    `;
+    }).join('') + (banners.length > 1 ? `
       <div class="hero-dots">
         ${banners.map((b, i) => `<button class="hero-dot ${i === 0 ? 'active' : ''}" data-dot="${i}" aria-label="Slide ${i + 1}"></button>`).join('')}
       </div>
@@ -269,22 +276,41 @@ function initHeroSlider() {
 
 loadBanners();
 
+async function loadFabricTiles() {
+  const track = document.getElementById('fabric-swipe-track');
+  if (!track) return;
+  try {
+    const [fabricsRes, settingsRes] = await Promise.all([
+      fetch('/api/fabric-categories'), fetch('/api/settings')
+    ]);
+    const fabrics = await fabricsRes.json();
+    const settings = await settingsRes.json();
+    if (!Array.isArray(fabrics) || fabrics.length === 0) { track.innerHTML = ''; return; }
+
+    const fallbackImages = ['/images/placeholder-1.svg', '/images/placeholder-2.svg', '/images/placeholder-3.svg', '/images/placeholder-9.svg', '/images/placeholder-5.svg', '/images/placeholder-7.svg'];
+    track.innerHTML = fabrics.map((f, i) => {
+      const settingKey = 'tile_' + f.name.toLowerCase();
+      const labelKey = 'fabric_label_' + f.name;
+      const img = settings[settingKey] || fallbackImages[i % fallbackImages.length];
+      const label = settings[labelKey] || f.name;
+      return `
+        <a class="category-tile" href="/collection.html?fabric=${encodeURIComponent(f.name)}">
+          <span class="tile-photo"><img src="${img}" alt="${label}" loading="lazy"></span>
+          <span class="tile-label"><span class="tile-name">${label}</span><span class="tile-cta">Shop Now</span></span>
+        </a>
+      `;
+    }).join('');
+    initFabricSwipe();
+  } catch (e) {
+    // leave skeleton state if fabrics can't load
+  }
+}
+loadFabricTiles();
+
 (async function loadSiteSettings() {
   try {
     const res = await fetch('/api/settings');
     const s = await res.json();
-    const tileMap = { tile_lawn: 'tile-lawn', tile_chiffon: 'tile-chiffon', tile_khaddar: 'tile-khaddar', tile_silk: 'tile-silk' };
-    Object.entries(tileMap).forEach(([key, id]) => {
-      if (s[key]) document.getElementById(id).src = s[key];
-    });
-
-    const labelMap = { fabric_label_Lawn: 'tile-lawn-label', fabric_label_Chiffon: 'tile-chiffon-label', fabric_label_Khaddar: 'tile-khaddar-label', fabric_label_Silk: 'tile-silk-label' };
-    Object.entries(labelMap).forEach(([key, labelId]) => {
-      if (s[key]) {
-        const labelEl = document.getElementById(labelId);
-        if (labelEl) labelEl.textContent = s[key];
-      }
-    });
 
     if (s.insta_gallery_mode === 'random') {
       const products = await getProducts();

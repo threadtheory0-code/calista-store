@@ -23,14 +23,21 @@
 
 <header class="site-header">
   <div class="header-inner container">
+    <div class="header-left">
+      <button class="mobile-menu-toggle" id="mobile-menu-btn" aria-label="Open menu">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
     <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" src="" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
-    <ul class="nav-links"><li><a href="/cart.html">Back to Cart</a></li></ul>
     <div class="header-icons">
-    <button class="mobile-menu-toggle" id="mobile-menu-btn" aria-label="Open menu">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
-    <a href="/cart.html">Cart <span class="cart-count">0</span></a>
-  </div>
+      <button class="header-icon-btn" id="header-search-btn" aria-label="Search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+      <a href="/cart.html" class="header-cart-link" id="header-cart-btn" aria-label="Cart">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        <span class="cart-count">0</span>
+      </a>
+    </div>
   </div>
 </header>
 
@@ -42,10 +49,13 @@
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   </div>
-  <a href="/index.html">Home</a>
-  <a href="/collection.html?view=lawn">Unstitched Lawn</a>
-  <a href="/collection.html?view=sale">Sale</a>
-  <a href="/cart.html">Cart</a>
+  <div class="drawer-gender-switch" id="drawer-gender-switch">
+    <button type="button" data-gender="women">Women</button>
+    <button type="button" data-gender="men">Men</button>
+  </div>
+  <a href="/index.html" class="drawer-tab-link">Home</a>
+  <div class="drawer-links" id="drawer-links"></div>
+  <a href="/cart.html" class="drawer-tab-link">Cart</a>
 </nav>
 
 <div class="checkout-page">
