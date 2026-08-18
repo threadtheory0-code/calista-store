@@ -1,4 +1,3 @@
-import { handleAdmin } from './api-admin.js';
 function calculateDiscount(discount, cart) {
   if (!Array.isArray(cart) || cart.length === 0) return { error: 'Cart is empty' };
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
@@ -118,9 +117,6 @@ async function notifyNewOrder(order, env) {
 
 export default {
   async fetch(request, env, ctx) {
-    const admin = await handleAdmin(request, env);
-    if (admin) return admin;
-
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -186,7 +182,7 @@ export default {
         if (!id || !allowed.includes(status)) {
           return json({ error: 'Invalid id or status' }, 400);
         }
-        await env.DB.prepare("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?").bind(status, id).run();
+        await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, id).run();
         return json({ success: true });
       } catch (err) {
         return json({ error: err.message }, 500);
@@ -514,11 +510,11 @@ export default {
         const b = await request.json();
         if (!b.heading) return json({ error: 'Heading is required' }, 400);
         await env.DB.prepare(
-          `INSERT INTO banners (eyebrow, heading, subheading, button_text, button_link, image_url, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO banners (eyebrow, heading, subheading, button_text, button_link, image_url, image_url_mobile, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           b.eyebrow || null, b.heading, b.subheading || null,
-          b.button_text || null, b.button_link || null, b.image_url || null, Number(b.sort_order) || 0
+          b.button_text || null, b.button_link || null, b.image_url || null, b.image_url_mobile || null, Number(b.sort_order) || 0
         ).run();
         return json({ success: true });
       } catch (err) {
@@ -531,11 +527,11 @@ export default {
         const b = await request.json();
         if (!b.id || !b.heading) return json({ error: 'Missing id or heading' }, 400);
         await env.DB.prepare(
-          `UPDATE banners SET eyebrow=?, heading=?, subheading=?, button_text=?, button_link=?, image_url=?, sort_order=?, is_active=?
+          `UPDATE banners SET eyebrow=?, heading=?, subheading=?, button_text=?, button_link=?, image_url=?, image_url_mobile=?, sort_order=?, is_active=?
            WHERE id=?`
         ).bind(
           b.eyebrow || null, b.heading, b.subheading || null,
-          b.button_text || null, b.button_link || null, b.image_url || null, Number(b.sort_order) || 0,
+          b.button_text || null, b.button_link || null, b.image_url || null, b.image_url_mobile || null, Number(b.sort_order) || 0,
           b.is_active === false ? 0 : 1, b.id
         ).run();
         return json({ success: true });
@@ -593,10 +589,120 @@ export default {
 
     if (path === '/api/products' && method === 'GET') {
       try {
+        const tabSlug = url.searchParams.get('tab');
+        if (tabSlug) {
+          const { results } = await env.DB.prepare(
+            `SELECT p.* FROM products p
+             JOIN nav_tab_products ntp ON ntp.product_id = p.id
+             JOIN nav_tabs t ON t.id = ntp.tab_id
+             WHERE p.is_active = 1 AND t.slug = ? AND t.is_active = 1
+             ORDER BY p.sort_order ASC, p.id DESC`
+          ).bind(tabSlug).all();
+          return json(results);
+        }
         const { results } = await env.DB
           .prepare('SELECT * FROM products WHERE is_active = 1 ORDER BY sort_order ASC, id DESC')
           .all();
         return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    /* ---------------- Nav tabs (hamburger menu: Men / Women categories) ---------------- */
+    if (path === '/api/nav-tabs' && method === 'GET') {
+      try {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM nav_tabs WHERE is_active = 1 ORDER BY gender ASC, sort_order ASC')
+          .all();
+        return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/nav-tabs' && method === 'GET') {
+      try {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM nav_tabs ORDER BY gender ASC, sort_order ASC')
+          .all();
+        return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/nav-tabs' && method === 'POST') {
+      try {
+        const t = await request.json();
+        if (!t.label || !t.slug) return json({ error: 'Label and slug are required' }, 400);
+        const gender = ['men', 'women', 'all'].includes(t.gender) ? t.gender : 'women';
+        await env.DB.prepare(
+          `INSERT INTO nav_tabs (label, slug, gender, sort_order)
+           VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM nav_tabs WHERE gender = ?))`
+        ).bind(t.label.trim(), t.slug.trim().toLowerCase(), gender, gender).run();
+        return json({ success: true });
+      } catch (err) {
+        if (String(err.message).includes('UNIQUE')) return json({ error: 'That slug already exists — choose a different tab name' }, 400);
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/nav-tabs' && method === 'PATCH') {
+      try {
+        const t = await request.json();
+        if (!t.id || !t.label || !t.slug) return json({ error: 'Missing id, label or slug' }, 400);
+        const gender = ['men', 'women', 'all'].includes(t.gender) ? t.gender : 'women';
+        await env.DB.prepare(
+          `UPDATE nav_tabs SET label=?, slug=?, gender=?, sort_order=?, is_active=? WHERE id=?`
+        ).bind(
+          t.label.trim(), t.slug.trim().toLowerCase(), gender, Number(t.sort_order) || 0,
+          t.is_active === false ? 0 : 1, t.id
+        ).run();
+        return json({ success: true });
+      } catch (err) {
+        if (String(err.message).includes('UNIQUE')) return json({ error: 'That slug already exists — choose a different tab name' }, 400);
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/nav-tabs' && method === 'DELETE') {
+      try {
+        const id = url.searchParams.get('id');
+        if (!id) return json({ error: 'Missing id' }, 400);
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM nav_tab_products WHERE tab_id = ?').bind(id),
+          env.DB.prepare('DELETE FROM nav_tabs WHERE id = ?').bind(id)
+        ]);
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // Get product ids currently assigned to a tab, for the admin checklist UI
+    if (path === '/api/admin/nav-tabs/products' && method === 'GET') {
+      try {
+        const tabId = url.searchParams.get('tab_id');
+        if (!tabId) return json({ error: 'Missing tab_id' }, 400);
+        const { results } = await env.DB.prepare('SELECT product_id FROM nav_tab_products WHERE tab_id = ?').bind(tabId).all();
+        return json(results.map(r => r.product_id));
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // Replace the full set of products assigned to a tab
+    if (path === '/api/admin/nav-tabs/assign' && method === 'POST') {
+      try {
+        const { tab_id, product_ids } = await request.json();
+        if (!tab_id || !Array.isArray(product_ids)) return json({ error: 'Missing tab_id or product_ids' }, 400);
+        const stmts = [env.DB.prepare('DELETE FROM nav_tab_products WHERE tab_id = ?').bind(tab_id)];
+        product_ids.forEach(pid => {
+          stmts.push(env.DB.prepare('INSERT INTO nav_tab_products (tab_id, product_id) VALUES (?, ?)').bind(tab_id, pid));
+        });
+        await env.DB.batch(stmts);
+        return json({ success: true, count: product_ids.length });
       } catch (err) {
         return json({ error: err.message }, 500);
       }
@@ -631,8 +737,8 @@ export default {
         const total = Math.max(0, subtotal - discountAmount);
 
         await env.DB.prepare(
-         `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`
+          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
         ).bind(customer_name, phone, address, city, JSON.stringify(items), total, appliedCode, discountAmount).run();
 
         ctx.waitUntil(notifyNewOrder({ customer_name, phone, address, city, items, total }, env));
