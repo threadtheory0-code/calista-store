@@ -351,12 +351,26 @@ export default {
       try {
         const { name } = await request.json();
         if (!name || !name.trim()) return json({ error: 'Name is required' }, 400);
+        const cleanName = name.trim();
+
+        // Idempotent: if this fabric already exists (case-insensitive), just return it —
+        // this lets the product uploader "auto-categorize" a fabric without erroring
+        // when the category already exists.
+        const existing = await env.DB.prepare(
+          'SELECT * FROM fabric_categories WHERE LOWER(name) = LOWER(?)'
+        ).bind(cleanName).first();
+        if (existing) return json({ success: true, created: false, fabric: existing });
+
+        const ICONS = ['swatch', 'roll', 'thread', 'fold', 'loom', 'pattern', 'stitch', 'drape'];
+        const icon = ICONS[Math.floor(Math.random() * ICONS.length)];
+
         await env.DB.prepare(
-          'INSERT INTO fabric_categories (name, sort_order) VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM fabric_categories))'
-        ).bind(name.trim()).run();
-        return json({ success: true });
+          `INSERT INTO fabric_categories (name, sort_order, icon)
+           VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM fabric_categories), ?)`
+        ).bind(cleanName, icon).run();
+        const created = await env.DB.prepare('SELECT * FROM fabric_categories WHERE LOWER(name) = LOWER(?)').bind(cleanName).first();
+        return json({ success: true, created: true, fabric: created });
       } catch (err) {
-        if (String(err.message).includes('UNIQUE')) return json({ error: 'That fabric already exists' }, 400);
         return json({ error: err.message }, 500);
       }
     }
@@ -510,11 +524,12 @@ export default {
         const b = await request.json();
         if (!b.heading) return json({ error: 'Heading is required' }, 400);
         await env.DB.prepare(
-          `INSERT INTO banners (eyebrow, heading, subheading, button_text, button_link, image_url, image_url_mobile, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO banners (eyebrow, heading, subheading, button_text, button_link, image_url, image_url_mobile, mobile_fabric_source, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           b.eyebrow || null, b.heading, b.subheading || null,
-          b.button_text || null, b.button_link || null, b.image_url || null, b.image_url_mobile || null, Number(b.sort_order) || 0
+          b.button_text || null, b.button_link || null, b.image_url || null, b.image_url_mobile || null,
+          b.mobile_fabric_source || null, Number(b.sort_order) || 0
         ).run();
         return json({ success: true });
       } catch (err) {
@@ -527,11 +542,12 @@ export default {
         const b = await request.json();
         if (!b.id || !b.heading) return json({ error: 'Missing id or heading' }, 400);
         await env.DB.prepare(
-          `UPDATE banners SET eyebrow=?, heading=?, subheading=?, button_text=?, button_link=?, image_url=?, image_url_mobile=?, sort_order=?, is_active=?
+          `UPDATE banners SET eyebrow=?, heading=?, subheading=?, button_text=?, button_link=?, image_url=?, image_url_mobile=?, mobile_fabric_source=?, sort_order=?, is_active=?
            WHERE id=?`
         ).bind(
           b.eyebrow || null, b.heading, b.subheading || null,
-          b.button_text || null, b.button_link || null, b.image_url || null, b.image_url_mobile || null, Number(b.sort_order) || 0,
+          b.button_text || null, b.button_link || null, b.image_url || null, b.image_url_mobile || null,
+          b.mobile_fabric_source || null, Number(b.sort_order) || 0,
           b.is_active === false ? 0 : 1, b.id
         ).run();
         return json({ success: true });
@@ -559,6 +575,23 @@ export default {
         return json(settings);
       } catch (err) {
         return json({ error: err.message }, 500);
+      }
+    }
+
+    // Tiny, cacheable endpoint used by the TikTok pixel snippet on every page —
+    // deliberately separate from /api/settings so it stays fast and the pixel
+    // ID can be changed from the admin panel without a code redeploy.
+    if (path === '/api/tiktok-pixel-id' && method === 'GET') {
+      try {
+        const row = await env.DB.prepare("SELECT value FROM site_settings WHERE key = 'tiktok_pixel_id'").first();
+        return new Response(JSON.stringify({ id: row ? row.value : null }), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=300'
+          }
+        });
+      } catch (err) {
+        return json({ id: null });
       }
     }
 
@@ -598,6 +631,14 @@ export default {
              WHERE p.is_active = 1 AND t.slug = ? AND t.is_active = 1
              ORDER BY p.sort_order ASC, p.id DESC`
           ).bind(tabSlug).all();
+          return json(results);
+        }
+        const fabric = url.searchParams.get('fabric');
+        if (fabric) {
+          const { results } = await env.DB
+            .prepare('SELECT * FROM products WHERE is_active = 1 AND LOWER(fabric) = LOWER(?) ORDER BY sort_order ASC, id DESC')
+            .bind(fabric)
+            .all();
           return json(results);
         }
         const { results } = await env.DB
