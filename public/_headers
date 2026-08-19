@@ -1,0 +1,22 @@
+# Cloudflare Pages cache headers.
+# Static, versioned-by-filename-unlikely assets get a long cache lifetime;
+# HTML pages stay short so content/price/stock updates show up quickly.
+
+/images/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+/styles.css
+  Cache-Control: public, max-age=3600, stale-while-revalidate=600
+
+/app.js
+  Cache-Control: public, max-age=3600, stale-while-revalidate=600
+
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
