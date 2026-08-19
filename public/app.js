@@ -204,7 +204,7 @@ function renderCartDrawer() {
 
   if (cart.length === 0) {
     body.innerHTML = `<div class="cart-drawer-empty">Your bag is empty.</div>`;
-    foot.innerHTML = `<button class="cart-drawer-continue" onclick="closeCartDrawer()">Continue Shopping</button>`;
+    foot.innerHTML = `<button class="cart-drawer-continue" onclick="continueShopping()">Continue Shopping</button>`;
     return;
   }
 
@@ -236,6 +236,7 @@ function renderCartDrawer() {
     <div class="cart-drawer-subtotal"><span>Subtotal</span><span>${money(subtotal)}</span></div>
     <a href="/checkout.html" class="btn">Checkout</a>
     <a href="/cart.html" class="btn" style="background:transparent; border:1px solid var(--ink-green); color:var(--ink-green);">View Cart</a>
+    <button class="cart-drawer-continue" onclick="continueShopping()">Continue Shopping</button>
   `;
 
   body.querySelectorAll('.cart-drawer-qty button').forEach(btn => {
@@ -259,6 +260,15 @@ function openCartDrawer() {
   renderCartDrawer();
   document.getElementById('cart-drawer').classList.add('open');
   document.getElementById('cart-drawer-backdrop').classList.add('open');
+}
+
+function continueShopping() {
+  const returnUrl = sessionStorage.getItem('cs_return_url');
+  if (returnUrl && returnUrl !== window.location.href) {
+    window.location.href = returnUrl;
+  } else {
+    closeCartDrawer();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', ensureCartDrawer);
@@ -469,7 +479,20 @@ function closeSearchOverlay() {
   document.getElementById('search-overlay-backdrop')?.classList.remove('open');
 }
 
-/* ---------------- Shop by Fabric — swipe row (touch + mouse drag + arrows) ---------------- */
+/* ---------------- Fabric type icons (auto-assigned, no photo needed) ---------------- */
+const FABRIC_ICONS = {
+  swatch: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="8" y="8" width="20" height="20" rx="2" transform="rotate(-8 18 18)"/><rect x="18" y="18" width="20" height="20" rx="2" transform="rotate(8 28 28)"/></svg>',
+  roll: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="14" cy="24" rx="6" ry="14"/><path d="M14 10c11 0 24 2 24 14s-13 14-24 14"/><path d="M14 10v28"/></svg>',
+  thread: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 9h18v6c0 4-6 6-6 9s6 5 6 9v6H15v-6c0-4 6-6 6-9s-6-5-6-9V9Z"/><path d="M17 9h14M17 39h14"/></svg>',
+  fold: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 16c6-4 10-4 16 0s10 4 16 0"/><path d="M8 24c6-4 10-4 16 0s10 4 16 0"/><path d="M8 32c6-4 10-4 16 0s10 4 16 0"/></svg>',
+  loom: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 10v28M18 10v28M26 10v28M34 10v28"/><path d="M8 14h32M8 22h32M8 30h32"/></svg>',
+  pattern: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M24 8 34 18 24 28 14 18Z"/><path d="M24 22 34 32 24 42 14 32Z"/></svg>',
+  stitch: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 30c8-16 24-16 32 0" stroke-dasharray="4 4"/><circle cx="38" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M38 12 30 20" stroke-dasharray="0"/></svg>',
+  drape: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 8c2 10-2 14 0 32M19 8c2 10-2 14 0 32M28 8c2 10-2 14 0 32M37 8c2 10-2 14 0 32"/></svg>'
+};
+function fabricIconSvg(key) {
+  return FABRIC_ICONS[key] || FABRIC_ICONS.swatch;
+}
 function initFabricSwipe() {
   const track = document.getElementById('fabric-swipe-track');
   if (!track || track.dataset.swipeBound) return;

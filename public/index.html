@@ -11,6 +11,18 @@
 <meta property="og:type" content="website">
 <meta property="og:image" content="/images/placeholder-1.svg">
 <meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "OnlineStore",
+  "name": "Calista",
+  "url": "https://calista.pages.dev/",
+  "description": "Shop premium unstitched lawn, chiffon, khaddar and silk suits at Calista. Cash on delivery across Pakistan.",
+  "areaServed": "PK",
+  "priceRange": "PKR",
+  "paymentAccepted": "Cash on Delivery"
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -19,8 +31,9 @@
 !function (w, d, t) {
   w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
 
-  ttq.load("YOUR_TIKTOK_PIXEL_ID");
-  ttq.page();
+  fetch('/api/tiktok-pixel-id').then(function(r){ return r.json(); }).then(function(d){
+    if (d && d.id) { ttq.load(d.id); ttq.page(); }
+  }).catch(function(){});
 }(window, document, 'ttq');
 </script>
 </head>
@@ -140,12 +153,12 @@
     </div>
   </div>
   <div class="insta-gallery">
-    <a class="insta-tile" href="#"><img id="insta-1" src="/images/placeholder-1.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img id="insta-2" src="/images/placeholder-2.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img id="insta-3" src="/images/placeholder-4.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img id="insta-4" src="/images/placeholder-5.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img id="insta-5" src="/images/placeholder-7.svg" alt=""></a>
-    <a class="insta-tile" href="#"><img id="insta-6" src="/images/placeholder-9.svg" alt=""></a>
+    <a class="insta-tile" href="#"><img id="insta-1" src="/images/placeholder-1.svg" alt="Calista customer style — unstitched suit look 1" loading="lazy"></a>
+    <a class="insta-tile" href="#"><img id="insta-2" src="/images/placeholder-2.svg" alt="Calista customer style — unstitched suit look 2" loading="lazy"></a>
+    <a class="insta-tile" href="#"><img id="insta-3" src="/images/placeholder-4.svg" alt="Calista customer style — unstitched suit look 3" loading="lazy"></a>
+    <a class="insta-tile" href="#"><img id="insta-4" src="/images/placeholder-5.svg" alt="Calista customer style — unstitched suit look 4" loading="lazy"></a>
+    <a class="insta-tile" href="#"><img id="insta-5" src="/images/placeholder-7.svg" alt="Calista customer style — unstitched suit look 5" loading="lazy"></a>
+    <a class="insta-tile" href="#"><img id="insta-6" src="/images/placeholder-9.svg" alt="Calista customer style — unstitched suit look 6" loading="lazy"></a>
   </div>
 </section>
 
@@ -210,7 +223,7 @@
     <a class="product-card" href="/product.html?slug=${p.slug}">
       <div class="product-thumb">
         <img src="${p.image_url}" alt="${p.name}" loading="lazy">
-        ${p.image_url_2 ? `<img class="img-alt" src="${p.image_url_2}" alt="${p.name}">` : ''}
+        ${p.image_url_2 ? `<img class="img-alt" src="${p.image_url_2}" alt="${p.name}" loading="lazy">` : ''}
         ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
       </div>
       <div class="product-info">
@@ -231,9 +244,10 @@ async function loadBanners() {
     hero.innerHTML = banners.map((b, i) => {
       const styleParts = [];
       if (b.image_url) styleParts.push(`--bg-desktop:url('${b.image_url}')`);
-      if (b.image_url_mobile) styleParts.push(`--bg-mobile:url('${b.image_url_mobile}')`);
+      if (b.image_url_mobile && !b.mobile_fabric_source) styleParts.push(`--bg-mobile:url('${b.image_url_mobile}')`);
       return `
       <div class="hero-slide ${i === 0 ? 'active' : ''}" data-slide="${i}"
+           ${b.mobile_fabric_source ? `data-fabric-source="${b.mobile_fabric_source}"` : ''}
            ${styleParts.length ? `style="${styleParts.join(';')}"` : ''}>
         ${b.image_url ? '<div class="hero-overlay"></div>' : ''}
         <div class="hero-slide-content">
@@ -251,8 +265,36 @@ async function loadBanners() {
     ` : '');
 
     initHeroSlider();
+    applyFabricRotatedMobileBanners();
   } catch (e) {
     // Leave hero empty if banners can't load — rest of the page still works
+  }
+}
+
+// Banners set to "auto-rotate mobile image from a fabric" don't ship a fixed
+// mobile image — instead we pick a random real product photo from that
+// fabric on every page load and use it as the mobile hero background.
+async function applyFabricRotatedMobileBanners() {
+  const slides = document.querySelectorAll('.hero-slide[data-fabric-source]');
+  if (slides.length === 0) return;
+  const fabricCache = {};
+  for (const slide of slides) {
+    const fabric = slide.dataset.fabricSource;
+    try {
+      if (!fabricCache[fabric]) {
+        const res = await fetch('/api/products?fabric=' + encodeURIComponent(fabric));
+        fabricCache[fabric] = await res.json();
+      }
+      const products = fabricCache[fabric];
+      if (Array.isArray(products) && products.length > 0) {
+        const pick = products[Math.floor(Math.random() * products.length)];
+        if (pick.image_url) {
+          slide.style.setProperty('--bg-mobile', `url('${pick.image_url}')`);
+        }
+      }
+    } catch (e) {
+      // Leave existing --bg-desktop as the mobile fallback if this fails
+    }
   }
 }
 
@@ -287,15 +329,17 @@ async function loadFabricTiles() {
     const settings = await settingsRes.json();
     if (!Array.isArray(fabrics) || fabrics.length === 0) { track.innerHTML = ''; return; }
 
-    const fallbackImages = ['/images/placeholder-1.svg', '/images/placeholder-2.svg', '/images/placeholder-3.svg', '/images/placeholder-9.svg', '/images/placeholder-5.svg', '/images/placeholder-7.svg'];
     track.innerHTML = fabrics.map((f, i) => {
       const settingKey = 'tile_' + f.name.toLowerCase();
       const labelKey = 'fabric_label_' + f.name;
-      const img = settings[settingKey] || fallbackImages[i % fallbackImages.length];
+      const customImg = settings[settingKey];
       const label = settings[labelKey] || f.name;
+      const photoInner = customImg
+        ? `<img src="${customImg}" alt="${label}" loading="lazy">`
+        : `<span class="tile-icon">${fabricIconSvg(f.icon)}</span>`;
       return `
         <a class="category-tile" href="/collection.html?fabric=${encodeURIComponent(f.name)}">
-          <span class="tile-photo"><img src="${img}" alt="${label}" loading="lazy"></span>
+          <span class="tile-photo ${customImg ? '' : 'tile-photo-icon'}">${photoInner}</span>
           <span class="tile-label"><span class="tile-name">${label}</span><span class="tile-cta">Shop Now</span></span>
         </a>
       `;

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin — Calista</title>
+<meta name="robots" content="noindex, nofollow">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -55,7 +56,14 @@
     <form class="admin-form" id="product-form">
       <div><label>Name</label><input name="name" required></div>
       <div><label>Slug (URL-safe, unique)</label><input name="slug" required></div>
-      <div><label>Fabric</label><select name="fabric" id="product-fabric-select"><option value="">Select fabric…</option></select></div>
+      <div>
+        <label>Fabric Type</label>
+        <div style="display:flex; gap:6px;">
+          <select name="fabric" id="product-fabric-select" style="flex:1;"><option value="">Select fabric…</option></select>
+          <button type="button" id="add-new-fabric-inline-btn" title="Add a new fabric type" style="padding:0 12px; border:1px solid var(--line); background:var(--ivory); cursor:pointer; font-size:16px; line-height:1;">+</button>
+        </div>
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Product is automatically added under this fabric in "Shop by Fabric" — new fabric types get a random icon assigned.</p>
+      </div>
       <div><label>Regular Price (Rs.)</label><input name="price" type="number" required></div>
       <div><label>Sale Price (Rs., optional)</label><input name="sale_price" type="number"></div>
       <div><label>Stock</label><input name="stock" type="number" value="10" required></div>
@@ -116,6 +124,13 @@
         <input type="file" id="banner-image-mobile-input" accept="image/*">
         <div class="image-preview-row" id="banner-image-mobile-preview"></div>
       </div>
+      <div class="full">
+        <label>Or — Auto-Rotate Mobile Image From a Fabric</label>
+        <select id="banner-fabric-source-select"><option value="">Don't auto-rotate — use the image above</option></select>
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">
+          If set, this overrides the mobile image above: on every page load, a random real product photo from this fabric is shown on the mobile banner instead of a fixed image.
+        </p>
+      </div>
       <button type="submit" class="btn">Add Banner</button>
       <button type="button" class="admin-delete-btn full" id="banner-cancel-edit" style="display:none;">Cancel edit</button>
       <div id="banner-form-msg" class="full" style="font-size:13px;"></div>
@@ -167,6 +182,16 @@
       <div><label>Photo 6</label><input type="file" class="site-tile-input" data-key="insta_6" accept="image/*"><div class="image-preview-row" id="preview-insta_6"></div></div>
     </div>
     <div id="site-settings-msg" style="font-size:13px; margin-top:16px;"></div>
+
+    <h3 class="display" style="font-size:20px; margin:36px 0 6px;">Tracking & Ads</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">
+      Your TikTok Pixel ID. Find it in TikTok Ads Manager → Assets → Events → your pixel → Pixel code → Manually install pixel code (the ID looks like <code>C4A1B2C3D4E5F6G7H8I9</code>). Once saved here it updates on every page immediately — no redeploy needed.
+    </p>
+    <div style="display:flex; gap:10px; max-width:420px;">
+      <input type="text" id="tiktok-pixel-id-input" placeholder="e.g. C4A1B2C3D4E5F6G7H8I9" style="flex:1; padding:9px 12px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px;">
+      <button class="btn" id="save-tiktok-pixel-btn" type="button" style="padding:10px 20px;">Save</button>
+    </div>
+    <div id="tiktok-pixel-msg" style="font-size:13px; margin-top:8px;"></div>
   </div>
 
   <div id="tab-fabrics" style="display:none;">
@@ -608,6 +633,11 @@ document.getElementById('product-form').addEventListener('submit', async (e) => 
     stock: Number(form.stock.value)
   };
   try {
+    if (payload.fabric) {
+      await api('/api/admin/fabric-categories', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: payload.fabric })
+      }).catch(() => {}); // idempotent — safe no-op if it already exists
+    }
     await api('/api/admin/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -691,6 +721,17 @@ document.getElementById('csv-file-input').addEventListener('change', async (e) =
     const chunkSize = 50;
     let uploaded = 0;
     try {
+      // Auto-categorize: make sure every fabric value used in the CSV exists as a
+      // fabric category (idempotent — no-op for ones that already exist).
+      const uniqueFabrics = [...new Set(parsedCsvProducts.map(p => (p.fabric || '').trim()).filter(Boolean))];
+      await Promise.all(uniqueFabrics.map(name =>
+        api('/api/admin/fabric-categories', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
+        }).catch(() => {})
+      ));
+      populateFabricSelects();
+      loadFabrics();
+
       for (let i = 0; i < parsedCsvProducts.length; i += chunkSize) {
         const chunk = parsedCsvProducts.slice(i, i + chunkSize);
         await api('/api/admin/products/bulk', {
@@ -799,7 +840,7 @@ async function loadBannersAdmin() {
             <tr>
               <td>${b.image_url ? `<img src="${b.image_url}" style="width:52px;height:34px;object-fit:cover;">` : '—'}</td>
               <td>${b.heading}</td>
-              <td>${b.image_url_mobile ? `<img src="${b.image_url_mobile}" style="width:30px;height:40px;object-fit:cover;">` : '—'}</td>
+              <td>${b.mobile_fabric_source ? `🔄 ${b.mobile_fabric_source}` : (b.image_url_mobile ? `<img src="${b.image_url_mobile}" style="width:30px;height:40px;object-fit:cover;">` : '—')}</td>
               <td>${b.sort_order}</td>
               <td>${b.is_active ? 'Yes' : 'No'}</td>
               <td>
@@ -838,6 +879,7 @@ async function loadBannersAdmin() {
         bannerImageMobileUrl = b.image_url_mobile || null;
         renderBannerImagePreview();
         renderBannerImageMobilePreview();
+        document.getElementById('banner-fabric-source-select').value = b.mobile_fabric_source || '';
         editingBannerId = b.id;
         document.getElementById('banner-form-title').textContent = 'Edit Banner';
         document.querySelector('#banner-form button[type=submit]').textContent = 'Save Changes';
@@ -858,6 +900,7 @@ function resetBannerForm() {
   bannerImageMobileUrl = null;
   renderBannerImagePreview();
   renderBannerImageMobilePreview();
+  document.getElementById('banner-fabric-source-select').value = '';
   editingBannerId = null;
   document.getElementById('banner-form-title').textContent = 'Add Banner';
   document.querySelector('#banner-form button[type=submit]').textContent = 'Add Banner';
@@ -878,6 +921,7 @@ document.getElementById('banner-form').addEventListener('submit', async (e) => {
     button_link: form.button_link.value,
     image_url: bannerImageUrl,
     image_url_mobile: bannerImageMobileUrl,
+    mobile_fabric_source: document.getElementById('banner-fabric-source-select').value || null,
     sort_order: Number(form.sort_order.value) || 0
   };
   try {
@@ -1124,9 +1168,15 @@ async function populateFabricSelects() {
     const fabrics = await api('/api/admin/fabric-categories');
     const productSelect = document.getElementById('product-fabric-select');
     const bulkSelect = document.getElementById('bulk-fabric-select');
+    const bannerFabricSelect = document.getElementById('banner-fabric-source-select');
     const options = fabrics.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
     if (productSelect) productSelect.innerHTML = '<option value="">Select fabric…</option>' + options;
     if (bulkSelect) bulkSelect.innerHTML = '<option value="">Set fabric to…</option>' + options;
+    if (bannerFabricSelect) {
+      const current = bannerFabricSelect.value;
+      bannerFabricSelect.innerHTML = '<option value="">Don\'t auto-rotate — use the image above</option>' + options;
+      bannerFabricSelect.value = current;
+    }
   } catch (e) {}
 }
 
@@ -1137,9 +1187,9 @@ async function loadFabrics() {
     const fabrics = await api('/api/admin/fabric-categories');
     root.innerHTML = `
       <table class="admin-table">
-        <thead><tr><th>Name</th><th></th></tr></thead>
+        <thead><tr><th>Icon</th><th>Name</th><th></th></tr></thead>
         <tbody>
-          ${fabrics.map(f => `<tr><td>${f.name}</td><td><button class="admin-delete-btn" data-id="${f.id}">Delete</button></td></tr>`).join('')}
+          ${fabrics.map(f => `<tr><td style="width:26px; color:var(--ink-green);">${fabricIconSvg(f.icon)}</td><td>${f.name}</td><td><button class="admin-delete-btn" data-id="${f.id}">Delete</button></td></tr>`).join('')}
         </tbody>
       </table>
     `;
@@ -1168,7 +1218,23 @@ document.getElementById('add-fabric-btn').addEventListener('click', async () => 
     });
     input.value = '';
     loadFabrics();
+    populateFabricSelects();
   } catch (e) { alert('Failed: ' + e.message); }
+});
+
+document.getElementById('add-new-fabric-inline-btn').addEventListener('click', async () => {
+  const name = prompt('New fabric type (e.g. Velvet, Net, Organza):');
+  if (!name || !name.trim()) return;
+  try {
+    await api('/api/admin/fabric-categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() })
+    });
+    await populateFabricSelects();
+    loadFabrics();
+    document.getElementById('product-fabric-select').value = name.trim();
+  } catch (e) { alert('Failed to add fabric: ' + e.message); }
 });
 
 /* ---------------- Discounts ---------------- */
@@ -1431,10 +1497,32 @@ async function loadSiteSettings() {
     });
     const galleryModeInput = document.querySelector(`input[name="gallery-mode"][value="${SITE_SETTINGS.insta_gallery_mode || 'manual'}"]`);
     if (galleryModeInput) galleryModeInput.checked = true;
+    if (SITE_SETTINGS.tiktok_pixel_id) {
+      document.getElementById('tiktok-pixel-id-input').value = SITE_SETTINGS.tiktok_pixel_id;
+    }
   } catch (e) {
     // fine if settings haven't been created yet
   }
 }
+
+document.getElementById('save-tiktok-pixel-btn').addEventListener('click', async () => {
+  const input = document.getElementById('tiktok-pixel-id-input');
+  const msg = document.getElementById('tiktok-pixel-msg');
+  const val = input.value.trim();
+  msg.textContent = 'Saving…';
+  msg.style.color = 'var(--charcoal-soft)';
+  try {
+    await api('/api/admin/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tiktok_pixel_id: val })
+    });
+    SITE_SETTINGS.tiktok_pixel_id = val;
+    msg.textContent = 'Saved ✓ — live on the site within a few minutes (cached 5 min).';
+    msg.style.color = 'var(--gold)';
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+    msg.style.color = 'var(--gold)';
+  }
+});
 </script>
 </body>
 </html>

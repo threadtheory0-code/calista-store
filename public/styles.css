@@ -619,6 +619,16 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
 .category-tile:hover .tile-photo { border-color: var(--gold); transform: translateY(-3px); }
 .category-tile img { width: 100%; height: 100%; object-fit: cover; object-position: top center; transition: transform 0.5s ease; }
 .category-tile:hover img { transform: scale(1.08); }
+.tile-photo-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ivory-warm);
+  color: var(--ink-green);
+}
+.tile-photo-icon .tile-icon { width: 46%; height: 46%; display: flex; }
+.tile-photo-icon .tile-icon svg { width: 100%; height: 100%; }
+.category-tile:hover .tile-photo-icon { color: var(--gold); }
 .category-tile .tile-label {
   position: static;
   padding: 0;
@@ -1166,6 +1176,11 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
 }
 @media (max-width: 720px) {
   .category-tiles { gap: 18px; }
+  /* Edge-to-edge: break out of the .container's side padding so the
+     swipeable fabric row spans the full screen width on mobile. */
+  .fabric-swipe-wrap { margin: 0 -24px; }
+  .category-tiles { padding: 4px 16px 14px; scroll-padding-left: 16px; }
+  .fabric-swipe-arrow { display: none; }
 }
 
 /* ============================================================
@@ -1179,15 +1194,33 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
   background-size: cover;
 }
 @media (max-width: 720px) {
-  .hero { min-height: 300px; }
-  .hero-slide {
-    min-height: 300px;
-    padding: 44px 18px 40px;
-    background-image: var(--bg-mobile, var(--bg-desktop, none));
-    background-position: center 25%;
+  /* Portrait, image-forward proportions similar to mainstream
+     Pakistani fashion e-commerce mobile banners (e.g. Sapphire):
+     a tall full-width panel with the image doing most of the work
+     and the text/CTA anchored near the bottom third. */
+  .hero {
+    min-height: 0;
+    aspect-ratio: 4 / 5;
   }
-  .hero-eyebrow { margin-bottom: 10px; font-size: 11px; }
-  .hero h1 { font-size: clamp(24px, 7.5vw, 34px); line-height: 1.15; margin-bottom: 12px; }
-  .hero p { font-size: 13px; margin-bottom: 20px; }
-  .hero .btn { padding: 11px 24px; font-size: 12px; }
+  .hero-slide {
+    min-height: 0;
+    align-items: flex-start;
+    justify-content: flex-end;
+    text-align: left;
+    padding: 24px 20px 30px;
+    background-image: var(--bg-mobile, var(--bg-desktop, none));
+    background-position: center 22%;
+  }
+  .hero-overlay {
+    background: linear-gradient(180deg, rgba(10,10,10,0.05) 0%, rgba(10,10,10,0.05) 45%, rgba(10,10,10,0.72) 100%);
+  }
+  .hero-eyebrow { margin-bottom: 8px; font-size: 11px; }
+  .hero h1 { font-size: clamp(22px, 7vw, 30px); line-height: 1.15; margin-bottom: 10px; }
+  .hero p { font-size: 13px; margin-bottom: 18px; max-width: 260px; }
+  .hero .btn { padding: 11px 22px; font-size: 12px; }
+}
+@supports not (aspect-ratio: 1 / 1) {
+  @media (max-width: 720px) {
+    .hero, .hero-slide { min-height: 380px; }
+  }
 }

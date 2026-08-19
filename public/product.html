@@ -10,6 +10,7 @@
 <meta property="og:type" content="product">
 <meta property="og:image" id="og-image" content="">
 <meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" id="canonical-link" href="https://calista.pages.dev/product.html">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -18,8 +19,9 @@
 !function (w, d, t) {
   w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
 
-  ttq.load("YOUR_TIKTOK_PIXEL_ID");
-  ttq.page();
+  fetch('/api/tiktok-pixel-id').then(function(r){ return r.json(); }).then(function(d){
+    if (d && d.id) { ttq.load(d.id); ttq.page(); }
+  }).catch(function(){});
 }(window, document, 'ttq');
 </script>
 </head>
@@ -75,7 +77,7 @@
 <div class="sticky-atc" id="sticky-atc" style="display:none;">
   <span class="sticky-price" id="sticky-price"></span>
   <button class="btn cart-btn" id="sticky-add-btn">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
     <span class="cart-btn-text">Add to Cart</span>
   </button>
 </div>
@@ -107,7 +109,7 @@
   root.innerHTML = `
     <div class="product-gallery-slider">
       <div class="gallery-track" id="gallery-track">
-        ${galleryImages.map(img => `<div class="gallery-slide"><img src="${img}" alt="${product.name}"></div>`).join('')}
+        ${galleryImages.map((img, i) => `<div class="gallery-slide"><img src="${img}" alt="${product.name}${galleryImages.length > 1 ? ' — photo ' + (i + 1) : ''}" ${i === 0 ? 'fetchpriority="high"' : 'loading="lazy"'}></div>`).join('')}
       </div>
       <button class="gallery-arrow gallery-arrow-left" id="gallery-prev" aria-label="Previous image">‹</button>
       <button class="gallery-arrow gallery-arrow-right" id="gallery-next" aria-label="Next image">›</button>
@@ -146,12 +148,13 @@
     </div>
   `;
 
-  // SEO: dynamic title, meta description, Open Graph, and Product structured data
+  // SEO: dynamic title, meta description, Open Graph, canonical URL, and Product structured data
   document.getElementById('page-title').textContent = `${product.name} — Calista`;
   document.getElementById('meta-description').setAttribute('content', (product.description || '').slice(0, 155));
   document.getElementById('og-title').setAttribute('content', product.name);
   document.getElementById('og-description').setAttribute('content', (product.description || '').slice(0, 155));
   document.getElementById('og-image').setAttribute('content', galleryImages[0] || '');
+  document.getElementById('canonical-link').setAttribute('href', `https://calista.pages.dev/product.html?slug=${product.slug}`);
   const ldScript = document.createElement('script');
   ldScript.type = 'application/ld+json';
   ldScript.textContent = JSON.stringify({
@@ -183,6 +186,7 @@
     addToCart(product, 1);
     showToast(`Added — ${product.name}`);
     fireConfetti();
+    sessionStorage.setItem('cs_return_url', window.location.href);
     openCartDrawer();
   }
 
