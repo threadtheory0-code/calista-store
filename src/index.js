@@ -1,3 +1,5 @@
+import { handleAdmin } from './api-admin.js';
+
 function calculateDiscount(discount, cart) {
   if (!Array.isArray(cart) || cart.length === 0) return { error: 'Cart is empty' };
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
@@ -121,6 +123,12 @@ export default {
     const path = url.pathname;
     const method = request.method;
 
+    // The Android merchant app sends "Authorization: Bearer <token>".
+    // Hand the request to the app API first — handleAdmin returns null for anything
+    // that is not its own, so the website's Basic-auth admin below is untouched.
+    const app_response = await handleAdmin(request, env);
+    if (app_response) return app_response;
+
     const isAdminRoute = path === '/admin.html' || path.startsWith('/api/admin/');
     if (isAdminRoute && !checkAdminAuth(request, env)) {
       return unauthorized();
@@ -182,7 +190,7 @@ export default {
         if (!id || !allowed.includes(status)) {
           return json({ error: 'Invalid id or status' }, 400);
         }
-        await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, id).run();
+        await env.DB.prepare("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?").bind(status, id).run();
         return json({ success: true });
       } catch (err) {
         return json({ error: err.message }, 500);
@@ -812,8 +820,8 @@ export default {
         const total = Math.max(0, subtotal - discountAmount);
 
         await env.DB.prepare(
-          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
+          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`
         ).bind(customer_name, phone, address, city, JSON.stringify(items), total, appliedCode, discountAmount).run();
 
         ctx.waitUntil(notifyNewOrder({ customer_name, phone, address, city, items, total }, env));
