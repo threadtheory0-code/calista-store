@@ -231,10 +231,11 @@ img { max-width: 100%; display: block; }
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  grid-auto-rows: min-content;
   gap: 40px 24px;
   align-items: start;
 }
-.product-card { position: relative; isolation: isolate; background: var(--ivory); }
+.product-card { position: relative; isolation: isolate; contain: layout style; min-width: 0; background: var(--ivory); }
 .product-thumb {
   position: relative;
   aspect-ratio: 3/4;

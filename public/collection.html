@@ -299,9 +299,21 @@ document.getElementById('load-more').addEventListener('click', () => { VISIBLE_C
 
   const fabricParam = params.get('fabric');
   if (fabricParam) {
+    let matchedFabricName = null;
     document.querySelectorAll('.f-fabric').forEach(c => {
-      c.checked = c.value.toLowerCase() === fabricParam.toLowerCase();
+      const isMatch = c.value.toLowerCase() === fabricParam.toLowerCase();
+      c.checked = isMatch;
+      if (isMatch) matchedFabricName = c.value; // use the real stored casing, e.g. "Dhanak" not "DHANAK"
     });
+    if (matchedFabricName) {
+      document.title = `${matchedFabricName} — Calista`;
+      document.querySelector('.collection-head h1').textContent = matchedFabricName;
+      document.querySelector('.collection-head p').textContent = `Browse our ${matchedFabricName} edit.`;
+      document.querySelector('.breadcrumb span:last-child').textContent = matchedFabricName;
+    } else {
+      // Unknown/stale fabric in the URL — don't silently show an empty grid, show everything instead
+      document.querySelectorAll('.f-fabric').forEach(c => { c.checked = true; });
+    }
   }
 
   const viewParam = params.get('view');
