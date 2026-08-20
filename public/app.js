@@ -51,20 +51,34 @@ const SAMPLE_PRODUCTS = [
    network — the single biggest browsing-speed win on mobile. */
 const API_TTL_MS = 90 * 1000;
 const _inflight = {};
+const _memo = {};
+
+// The big product list is worth keeping across page views (it's the heavy
+// payload). Small config endpoints — banners, fabrics, settings, menu tabs —
+// are only memoised for the current page, so an admin change appears on the
+// very next page load instead of waiting out a cache.
+const persistable = (path) => path.indexOf('/api/products') === 0;
 
 async function apiCached(path) {
+  if (_memo[path]) return _memo[path];
   if (_inflight[path]) return _inflight[path];
+
   const key = 'cs_api_' + path;
-  try {
-    const hit = JSON.parse(sessionStorage.getItem(key) || 'null');
-    if (hit && Date.now() - hit.t < API_TTL_MS) return hit.d;
-  } catch (e) {}
+  if (persistable(path)) {
+    try {
+      const hit = JSON.parse(sessionStorage.getItem(key) || 'null');
+      if (hit && Date.now() - hit.t < API_TTL_MS) { _memo[path] = hit.d; return hit.d; }
+    } catch (e) {}
+  }
 
   _inflight[path] = (async () => {
     const res = await fetch(path);
     if (!res.ok) throw new Error('api not ready');
     const data = await res.json();
-    try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), d: data })); } catch (e) {}
+    _memo[path] = data;
+    if (persistable(path)) {
+      try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), d: data })); } catch (e) {}
+    }
     return data;
   })();
   try {

@@ -138,7 +138,8 @@
       <div id="banner-form-msg" class="full" style="font-size:13px;"></div>
     </form>
 
-    <h3 class="display" style="font-size:20px; margin-bottom:14px;">All Banners</h3>
+    <h3 class="display" style="font-size:20px; margin-bottom:6px;">All Banners</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:14px;"><b>Display order:</b> use ▲▼ to move a banner, or type a position and press Enter. The one at the top shows first when the homepage loads; the rest rotate after it every 5 seconds.</p>
     <div id="banners-root">Loading banners…</div>
   </div>
 
@@ -211,7 +212,8 @@
 
   <div id="tab-fabrics" style="display:none;">
     <h3 class="display" style="font-size:20px; margin-bottom:6px;">Fabric Categories</h3>
-    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:16px;">These power the collection page filters, the product form dropdown, and bulk-assignment tools. Deleting a fabric here doesn't delete any products — they'll just keep whatever fabric name they already had.</p>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:6px;">These power the collection page filters, the product form dropdown, and bulk-assignment tools. Deleting a fabric here doesn't delete any products — they'll just keep whatever fabric name they already had.</p>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:16px;"><b>Display order:</b> use ▲▼ to move a fabric, or type a position and press Enter. The one at the top of this list shows first in "Shop by Fabric" on the homepage.</p>
     <div style="display:flex; gap:10px; margin-bottom:20px;">
       <input type="text" id="new-fabric-input" placeholder="e.g. Velvet, Net, Cotton" style="flex:1; padding:9px 12px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px;">
       <button class="btn" id="add-fabric-btn" type="button" style="padding:10px 20px;">Add Fabric</button>
@@ -446,6 +448,56 @@ async function uploadFiles(fileList, preset = 'product') {
   }
   const data = await res.json();
   return data.urls;
+}
+
+/* ---------------- Ordering helper ----------------
+   Shared by products, fabrics and banners: ▲▼ swap two neighbours,
+   or type a position and press Enter to jump. Lower shows first. */
+function reorderControls(list, id, endpoint, onDone) {
+  const i = list.findIndex(x => x.id === id);
+  const first = i === 0, last = i === list.length - 1;
+  return `
+    <div style="display:flex; align-items:center; gap:4px;">
+      <button class="reorder-btn" data-ro-dir="up" data-ro-id="${id}" ${first ? 'disabled' : ''} title="Move up">▲</button>
+      <button class="reorder-btn" data-ro-dir="down" data-ro-id="${id}" ${last ? 'disabled' : ''} title="Move down">▼</button>
+      <input type="number" class="ro-position" data-ro-id="${id}" value="${list[i].sort_order ?? i}"
+             style="width:56px; padding:4px; border:1px solid var(--line); font-size:12px;" title="Type a position and press Enter">
+    </div>`;
+}
+
+function bindReorder(root, list, endpoint, onDone) {
+  const save = async (updates) => {
+    try {
+      await api(endpoint, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates })
+      });
+      onDone();
+    } catch (e) {
+      alert('Failed to reorder: ' + e.message);
+    }
+  };
+  root.querySelectorAll('[data-ro-dir]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.roId);
+      const idx = list.findIndex(x => x.id === id);
+      const swap = btn.dataset.roDir === 'up' ? idx - 1 : idx + 1;
+      if (swap < 0 || swap >= list.length) return;
+      const a = list[idx], b = list[swap];
+      // Neighbours can share a sort_order (e.g. both 0) — normalise so the
+      // swap always produces a visible change.
+      const aOrder = a.sort_order ?? idx, bOrder = b.sort_order ?? swap;
+      save(aOrder === bOrder
+        ? [{ id: a.id, sort_order: swap }, { id: b.id, sort_order: idx }]
+        : [{ id: a.id, sort_order: bOrder }, { id: b.id, sort_order: aOrder }]);
+    });
+  });
+  root.querySelectorAll('.ro-position').forEach(input => {
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      save([{ id: Number(input.dataset.roId), sort_order: Number(input.value) }]);
+    });
+  });
 }
 
 /* ---------------- Orders ---------------- */
@@ -940,14 +992,15 @@ async function loadBannersAdmin() {
     }
     root.innerHTML = `
       <table class="admin-table">
-        <thead><tr><th></th><th>Heading</th><th>Mobile img</th><th>Order</th><th>Active</th><th></th></tr></thead>
+        <thead><tr><th>Shows</th><th></th><th>Heading</th><th>Mobile img</th><th>Display order</th><th>Active</th><th></th></tr></thead>
         <tbody>
-          ${banners.map(b => `
+          ${banners.map((b, i) => `
             <tr>
+              <td style="font-size:12px; color:var(--charcoal-soft);">${i === 0 ? '<b style="color:var(--ink-green);">1st</b>' : (i + 1) + 'th'}</td>
               <td>${b.image_url ? `<img src="${b.image_url}" style="width:52px;height:34px;object-fit:cover;">` : '—'}</td>
               <td>${b.heading}</td>
               <td>${b.mobile_fabric_source ? `🔄 ${b.mobile_fabric_source}` : (b.image_url_mobile ? `<img src="${b.image_url_mobile}" style="width:30px;height:40px;object-fit:cover;">` : '—')}</td>
-              <td>${b.sort_order}</td>
+              <td>${reorderControls(banners, b.id)}</td>
               <td>${b.is_active ? 'Yes' : 'No'}</td>
               <td>
                 <button class="admin-delete-btn" data-edit="${b.id}">Edit</button>
@@ -959,6 +1012,7 @@ async function loadBannersAdmin() {
         </tbody>
       </table>
     `;
+    bindReorder(root, banners, '/api/admin/banners/reorder', loadBannersAdmin);
     root.querySelectorAll('[data-delete]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('Delete this banner?')) return;
@@ -1293,12 +1347,19 @@ async function loadFabrics() {
     const fabrics = await api('/api/admin/fabric-categories');
     root.innerHTML = `
       <table class="admin-table">
-        <thead><tr><th>Icon</th><th>Name</th><th></th></tr></thead>
+        <thead><tr><th>Shows</th><th>Icon</th><th>Name</th><th>Display order</th><th></th></tr></thead>
         <tbody>
-          ${fabrics.map(f => `<tr><td style="width:26px; color:var(--ink-green);">${fabricIconSvg(f.icon)}</td><td>${f.name}</td><td><button class="admin-delete-btn" data-id="${f.id}">Delete</button></td></tr>`).join('')}
+          ${fabrics.map((f, i) => `<tr>
+            <td style="font-size:12px; color:var(--charcoal-soft);">${i === 0 ? '<b style="color:var(--ink-green);">1st</b>' : (i + 1) + 'th'}</td>
+            <td style="width:26px; color:var(--ink-green);">${fabricIconSvg(f.icon)}</td>
+            <td>${f.name}</td>
+            <td>${reorderControls(fabrics, f.id)}</td>
+            <td><button class="admin-delete-btn" data-id="${f.id}">Delete</button></td>
+          </tr>`).join('')}
         </tbody>
       </table>
     `;
+    bindReorder(root, fabrics, '/api/admin/fabric-categories/reorder', () => { loadFabrics(); populateFabricSelects(); });
     root.querySelectorAll('.admin-delete-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('Delete this fabric category? Products already using it keep their fabric name.')) return;
