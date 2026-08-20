@@ -43,13 +43,50 @@ const SAMPLE_PRODUCTS = [
     image_url: "/images/placeholder-9.svg", image_url_2: "/images/placeholder-9b.svg", stock: 6 },
 ];
 
+/* ---------------- Cached data layer ----------------
+   Every page used to re-fetch /api/products and /api/settings two or
+   three times (grid, gallery, fabric tiles, search). Now each endpoint
+   is fetched once per page and kept in sessionStorage for 90 seconds,
+   so moving between pages renders from cache instead of waiting on the
+   network — the single biggest browsing-speed win on mobile. */
+const API_TTL_MS = 90 * 1000;
+const _inflight = {};
+
+async function apiCached(path) {
+  if (_inflight[path]) return _inflight[path];
+  const key = 'cs_api_' + path;
+  try {
+    const hit = JSON.parse(sessionStorage.getItem(key) || 'null');
+    if (hit && Date.now() - hit.t < API_TTL_MS) return hit.d;
+  } catch (e) {}
+
+  _inflight[path] = (async () => {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error('api not ready');
+    const data = await res.json();
+    try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), d: data })); } catch (e) {}
+    return data;
+  })();
+  try {
+    return await _inflight[path];
+  } finally {
+    delete _inflight[path];
+  }
+}
+
 async function getProducts() {
   try {
-    const res = await fetch('/api/products');
-    if (!res.ok) throw new Error('api not ready');
-    return await res.json();
+    return await apiCached('/api/products');
   } catch (e) {
     return SAMPLE_PRODUCTS; // placeholder fallback until D1 + Functions are wired up
+  }
+}
+
+async function getSettings() {
+  try {
+    return await apiCached('/api/settings');
+  } catch (e) {
+    return {};
   }
 }
 
@@ -234,8 +271,7 @@ async function applySiteLogo() {
   const txt = document.getElementById('site-logo-text');
   if (!img || !txt) return;
   try {
-    const res = await fetch('/api/settings');
-    const s = await res.json();
+    const s = await getSettings();
     if (s.logo_url) {
       img.src = s.logo_url;
       img.style.display = '';
@@ -433,8 +469,7 @@ async function loadNavTabs(onLinkClick) {
 
   try {
     if (!NAV_TABS_CACHE) {
-      const res = await fetch('/api/nav-tabs');
-      NAV_TABS_CACHE = await res.json();
+      NAV_TABS_CACHE = await apiCached('/api/nav-tabs');
     }
     const tabs = Array.isArray(NAV_TABS_CACHE) ? NAV_TABS_CACHE : [];
     const hasMen = tabs.some(t => t.gender === 'men');
@@ -577,8 +612,11 @@ function fabricIconSvg(key) {
 }
 function initFabricSwipe() {
   const track = document.getElementById('fabric-swipe-track');
-  if (!track || track.dataset.swipeBound) return;
+  if (!track) return;
+  syncFabricStripFit(track);
+  if (track.dataset.swipeBound) return;
   track.dataset.swipeBound = '1';
+  window.addEventListener('resize', () => syncFabricStripFit(track), { passive: true });
 
   let isDown = false, startX = 0, scrollStart = 0;
 
@@ -604,6 +642,21 @@ function initFabricSwipe() {
   };
   prevBtn?.addEventListener('click', () => scrollByTile(-1));
   nextBtn?.addEventListener('click', () => scrollByTile(1));
+}
+
+// Centre the fabric strip only while every tile fits on screen; once it
+// overflows it must start at flex-start or the tiles that spill past the
+// left edge can never be scrolled to.
+function syncFabricStripFit(track) {
+  if (!track) return;
+  const fits = track.scrollWidth <= track.clientWidth + 1;
+  track.classList.toggle('fits', fits);
+  const wrap = track.closest('.fabric-swipe-wrap');
+  if (wrap) {
+    wrap.querySelectorAll('.fabric-swipe-arrow').forEach(a => {
+      a.style.visibility = fits ? 'hidden' : '';
+    });
+  }
 }
 
 /* ---------------- Toast confirmation ---------------- */

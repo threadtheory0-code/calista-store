@@ -26,15 +26,21 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <script>
 !function (w, d, t) {
   w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
 
-  fetch('/api/tiktok-pixel-id').then(function(r){ return r.json(); }).then(function(d){
-    if (d && d.id) { ttq.load(d.id); ttq.page(); }
-  }).catch(function(){});
+  // Deferred to idle: the pixel is analytics, not content — loading it
+  // after first paint keeps it out of the critical path.
+  var startPixel = function () {
+    fetch('/api/tiktok-pixel-id').then(function(r){ return r.json(); }).then(function(d){
+      if (d && d.id) { ttq.load(d.id); ttq.page(); }
+    }).catch(function(){});
+  };
+  if ('requestIdleCallback' in w) w.requestIdleCallback(startPixel, { timeout: 3500 });
+  else w.addEventListener('load', function(){ setTimeout(startPixel, 1200); });
 }(window, document, 'ttq');
 </script>
 </head>
@@ -220,11 +226,11 @@
 (async function () {
   const products = await getProducts();
   const grid = document.getElementById('product-grid');
-  grid.innerHTML = products.map(p => `
+  grid.innerHTML = products.map((p, i) => `
     <a class="product-card" href="/product.html?slug=${p.slug}">
       <div class="product-thumb">
-        <img src="${p.image_url}" alt="${p.name}" loading="lazy">
-        ${p.image_url_2 ? `<img class="img-alt" src="${p.image_url_2}" alt="${p.name}" loading="lazy">` : ''}
+        <img src="${p.image_url}" alt="${p.name}" width="600" height="800" decoding="async" ${i < 4 ? 'fetchpriority="high"' : 'loading="lazy"'}>
+        ${p.image_url_2 ? `<img class="img-alt" src="${p.image_url_2}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">` : ''}
         ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
       </div>
       <div class="product-info">
@@ -238,8 +244,7 @@
 async function loadBanners() {
   const hero = document.getElementById('hero');
   try {
-    const res = await fetch('/api/banners');
-    const banners = await res.json();
+    const banners = await apiCached('/api/banners');
     if (!Array.isArray(banners) || banners.length === 0) return;
 
     hero.innerHTML = banners.map((b, i) => {
@@ -266,6 +271,7 @@ async function loadBanners() {
     ` : '');
 
     initHeroSlider();
+    fitHeroToImage();
     applyFabricRotatedMobileBanners();
   } catch (e) {
     // Leave hero empty if banners can't load — rest of the page still works
@@ -278,26 +284,48 @@ async function loadBanners() {
 async function applyFabricRotatedMobileBanners() {
   const slides = document.querySelectorAll('.hero-slide[data-fabric-source]');
   if (slides.length === 0) return;
-  const fabricCache = {};
+  // One cached product list, filtered locally — no request per fabric.
+  const all = await getProducts();
   for (const slide of slides) {
-    const fabric = slide.dataset.fabricSource;
-    try {
-      if (!fabricCache[fabric]) {
-        const res = await fetch('/api/products?fabric=' + encodeURIComponent(fabric));
-        fabricCache[fabric] = await res.json();
-      }
-      const products = fabricCache[fabric];
-      if (Array.isArray(products) && products.length > 0) {
-        const pick = products[Math.floor(Math.random() * products.length)];
-        if (pick.image_url) {
-          slide.style.setProperty('--bg-mobile', `url('${pick.image_url}')`);
-        }
-      }
-    } catch (e) {
-      // Leave existing --bg-desktop as the mobile fallback if this fails
-    }
+    const fabric = (slide.dataset.fabricSource || '').toLowerCase();
+    const pool = all.filter(p => (p.fabric || '').toLowerCase() === fabric && p.image_url);
+    if (pool.length === 0) continue;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    slide.style.setProperty('--bg-mobile', `url('${pick.image_url}')`);
   }
+  fitHeroToImage();
 }
+
+/* The banner frame takes the uploaded photo's own aspect ratio, so the
+   image fills it edge to edge with nothing cropped off the top or bottom,
+   and the frame sits directly under the header bar. Loading the photo
+   here also warms the cache before the CSS background needs it. */
+function fitHeroToImage() {
+  const hero = document.getElementById('hero');
+  if (!hero) return;
+  const slide = hero.querySelector('.hero-slide.active') || hero.querySelector('.hero-slide');
+  if (!slide) return;
+  const mobile = window.matchMedia('(max-width: 720px)').matches;
+  const cs = getComputedStyle(slide);
+  const raw = (mobile ? cs.getPropertyValue('--bg-mobile') : '') || cs.getPropertyValue('--bg-desktop');
+  const match = (raw || '').match(/url\(["']?([^"')]+)["']?\)/);
+  if (!match) return;
+  const img = new Image();
+  img.fetchPriority = 'high';
+  img.decoding = 'async';
+  img.onload = () => {
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const ar = img.naturalWidth / img.naturalHeight;
+    hero.style.setProperty('--hero-ar', img.naturalWidth + ' / ' + img.naturalHeight);
+    hero.classList.toggle('hero-wide', mobile && ar > 1.2);
+  };
+  img.src = match[1];
+}
+let _heroFitTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(_heroFitTimer);
+  _heroFitTimer = setTimeout(fitHeroToImage, 200);
+}, { passive: true });
 
 function initHeroSlider() {
   const slides = document.querySelectorAll('.hero-slide');
@@ -311,9 +339,9 @@ function initHeroSlider() {
     if (dots[i]) dots[i].classList.add('active');
     current = i;
   }
-  dots.forEach(dot => dot.addEventListener('click', () => show(Number(dot.dataset.dot))));
+  dots.forEach(dot => dot.addEventListener('click', () => { show(Number(dot.dataset.dot)); fitHeroToImage(); }));
   if (slides.length > 1) {
-    setInterval(() => show((current + 1) % slides.length), 5000);
+    setInterval(() => { show((current + 1) % slides.length); fitHeroToImage(); }, 5000);
   }
 }
 
@@ -323,11 +351,9 @@ async function loadFabricTiles() {
   const track = document.getElementById('fabric-swipe-track');
   if (!track) return;
   try {
-    const [fabricsRes, settingsRes] = await Promise.all([
-      fetch('/api/fabric-categories'), fetch('/api/settings')
+    const [fabrics, settings] = await Promise.all([
+      apiCached('/api/fabric-categories'), getSettings()
     ]);
-    const fabrics = await fabricsRes.json();
-    const settings = await settingsRes.json();
     if (!Array.isArray(fabrics) || fabrics.length === 0) { track.innerHTML = ''; return; }
     const tileMode = settings.fabric_tile_mode || 'auto';
 
@@ -337,7 +363,7 @@ async function loadFabricTiles() {
       const customImg = tileMode === 'manual' ? settings[settingKey] : null;
       const label = settings[labelKey] || f.name;
       const photoInner = customImg
-        ? `<img src="${customImg}" alt="${label}" loading="lazy">`
+        ? `<img src="${customImg}" alt="${label}" width="220" height="220" loading="lazy" decoding="async">`
         : `<span class="tile-icon">${fabricIconSvg(f.icon)}</span>`;
       return `
         <a class="category-tile" href="/collection.html?fabric=${encodeURIComponent(f.name)}" data-fabric-tile="${f.name}">
@@ -351,22 +377,19 @@ async function loadFabricTiles() {
     // Auto mode: swap the placeholder icon for a real random product photo
     // per fabric, once fetched — same idea as the Follow gallery's "Random" mode.
     if (tileMode === 'auto') {
-      fabrics.forEach(async (f) => {
-        try {
-          const res = await fetch('/api/products?fabric=' + encodeURIComponent(f.name));
-          const products = await res.json();
-          if (!Array.isArray(products) || products.length === 0) return;
-          const pick = products[Math.floor(Math.random() * products.length)];
-          if (!pick.image_url) return;
-          const tileLink = track.querySelector(`[data-fabric-tile="${CSS.escape(f.name)}"] .tile-photo`);
-          if (tileLink) {
-            tileLink.classList.remove('tile-photo-icon');
-            tileLink.innerHTML = `<img src="${pick.image_url}" alt="${f.name}" loading="lazy">`;
-          }
-        } catch (e) {
-          // leave the icon fallback in place if this fabric's products can't be fetched
+      // One cached product list for every tile instead of one request per fabric.
+      const all = await getProducts();
+      fabrics.forEach((f) => {
+        const pool = all.filter(p => (p.fabric || '').toLowerCase() === f.name.toLowerCase() && p.image_url);
+        if (pool.length === 0) return;
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        const tileLink = track.querySelector(`[data-fabric-tile="${CSS.escape(f.name)}"] .tile-photo`);
+        if (tileLink) {
+          tileLink.classList.remove('tile-photo-icon');
+          tileLink.innerHTML = `<img src="${pick.image_url}" alt="${f.name}" width="220" height="220" loading="lazy" decoding="async">`;
         }
       });
+      initFabricSwipe();
     }
   } catch (e) {
     track.innerHTML = '';
@@ -376,8 +399,7 @@ loadFabricTiles();
 
 (async function loadSiteSettings() {
   try {
-    const res = await fetch('/api/settings');
-    const s = await res.json();
+    const s = await getSettings();
 
     if (s.insta_gallery_mode === 'random') {
       const products = await getProducts();

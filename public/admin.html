@@ -115,12 +115,14 @@
       <div><label>Button Text</label><input name="button_text" placeholder="Shop Collection"></div>
       <div><label>Button Link</label><input name="button_link" placeholder="/collection.html"></div>
       <div class="full">
-        <label>Banner Image — Desktop (optional — shows as background; leave empty for solid color)</label>
+        <label>Banner Image — Desktop (optional — leave empty for solid color)</label>
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin:0 0 6px;">The banner frame now takes your photo's own shape, so nothing gets cropped — whatever you upload is shown in full, starting right below the menu bar. Wide crops (about 20:9) look best on desktop.</p>
         <input type="file" id="banner-image-input" accept="image/*">
         <div class="image-preview-row" id="banner-image-preview"></div>
       </div>
       <div class="full">
-        <label>Banner Image — Mobile (optional — used on phones instead of the desktop image above; use a taller, tighter crop so it isn't stretched)</label>
+        <label>Banner Image — Mobile (optional — used on phones instead of the desktop image above)</label>
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin:0 0 6px;">A portrait crop (about 4:5) fills a phone screen best. It's shown complete, never cropped or stretched.</p>
         <input type="file" id="banner-image-mobile-input" accept="image/*">
         <div class="image-preview-row" id="banner-image-mobile-preview"></div>
       </div>
@@ -145,6 +147,14 @@
   </div>
 
   <div id="tab-site" style="display:none;">
+    <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:28px; background:var(--ivory-warm);">
+      <b style="font-size:13.5px;">Image compression is on for every upload</b>
+      <p style="font-size:13px; color:var(--charcoal-soft); margin:6px 0 0;">
+        Photos are resized and re-encoded (WebP where supported) in your browser before they upload —
+        product photos to max 1400px / ~200&nbsp;KB, banners to 1920px / ~320&nbsp;KB, the logo to 600px.
+        You'll see how much was saved after each upload. Upload your originals; no need to resize anything first.
+      </p>
+    </div>
     <h3 class="display" style="font-size:20px; margin-bottom:6px;">Site Logo</h3>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">Upload once to replace the "Calista" text logo everywhere. Best as a wide, transparent PNG.</p>
     <input type="file" id="site-logo-input" accept="image/*">
@@ -305,37 +315,128 @@ async function api(path, options = {}) {
   return res.json();
 }
 
-function compressImage(file, maxDimension = 1600, quality = 0.8) {
-  return new Promise((resolve) => {
-    if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') {
-      resolve(file);
-      return;
-    }
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = (e) => { img.src = e.target.result; };
-    img.onload = () => {
-      let { width, height } = img;
-      if (width > maxDimension || height > maxDimension) {
-        if (width > height) { height = Math.round(height * (maxDimension / width)); width = maxDimension; }
-        else { width = Math.round(width * (maxDimension / height)); height = maxDimension; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        if (!blob) { resolve(file); return; }
-        resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }));
-      }, 'image/jpeg', quality);
-    };
-    img.onerror = () => resolve(file);
-    reader.onerror = () => resolve(file);
-    reader.readAsDataURL(file);
-  });
+/* ============================================================
+   Image compression — ON by default for every upload
+   ------------------------------------------------------------
+   Photos straight off a phone are 3-8 MB, which is the single
+   biggest thing slowing a storefront down. Every image picked in
+   this panel is resized and re-encoded in the browser BEFORE it is
+   uploaded: WebP where the browser supports it (much smaller than
+   JPEG at the same quality), JPEG otherwise. Quality steps down
+   until the file is under the target size, so a 6 MB photo
+   typically lands around 120-200 KB with no visible difference on
+   a phone screen. Transparent PNG logos and SVGs are passed
+   through untouched.
+   ============================================================ */
+const COMPRESSION = {
+  enabled: true,
+  product: { maxDimension: 1400, targetKB: 200 },
+  banner:  { maxDimension: 1920, targetKB: 320 },
+  logo:    { maxDimension: 600,  targetKB: 90  }
+};
+
+let _webpOk = null;
+function supportsWebp() {
+  if (_webpOk === null) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    _webpOk = c.toDataURL('image/webp').indexOf('image/webp') === 5;
+  }
+  return _webpOk;
 }
 
-async function uploadFiles(fileList) {
-  const compressed = await Promise.all(Array.from(fileList).map(f => compressImage(f)));
+function canvasToBlob(canvas, type, quality) {
+  return new Promise(resolve => canvas.toBlob(resolve, type, quality));
+}
+
+async function compressImage(file, preset = 'product') {
+  const cfg = COMPRESSION[preset] || COMPRESSION.product;
+  if (!COMPRESSION.enabled) return file;
+  if (!file.type.startsWith('image/')) return file;
+  if (file.type === 'image/svg+xml' || file.type === 'image/gif') return file;
+
+  // Keep transparent PNGs as PNG-lite only if they're already small;
+  // flattening a logo onto white would ruin it.
+  const isPng = file.type === 'image/png';
+
+  const bitmap = await new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+  if (!bitmap || !bitmap.naturalWidth) return file;
+
+  let { naturalWidth: width, naturalHeight: height } = bitmap;
+  const max = cfg.maxDimension;
+  if (width > max || height > max) {
+    if (width > height) { height = Math.round(height * (max / width)); width = max; }
+    else { width = Math.round(width * (max / height)); height = max; }
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  if (!isPng) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height); }
+  ctx.drawImage(bitmap, 0, 0, width, height);
+
+  const type = supportsWebp() && !isPng ? 'image/webp' : (isPng ? 'image/png' : 'image/jpeg');
+  const ext = type === 'image/webp' ? '.webp' : (type === 'image/png' ? '.png' : '.jpg');
+
+  let blob = null;
+  if (type === 'image/png') {
+    blob = await canvasToBlob(canvas, 'image/png');
+    // A resized PNG that's still huge is better served as WebP
+    if (blob && blob.size > cfg.targetKB * 1024 * 2 && supportsWebp()) {
+      const webp = await canvasToBlob(canvas, 'image/webp', 0.9);
+      if (webp && webp.size < blob.size) return finish(webp, '.webp');
+    }
+  } else {
+    for (const q of [0.86, 0.78, 0.7, 0.62, 0.55, 0.48]) {
+      blob = await canvasToBlob(canvas, type, q);
+      if (blob && blob.size <= cfg.targetKB * 1024) break;
+    }
+  }
+  if (!blob || blob.size >= file.size) return file;
+  return finish(blob, ext);
+
+  function finish(b, e) {
+    return new File([b], file.name.replace(/\.[^.]+$/, '') + e, { type: b.type });
+  }
+}
+
+function fmtKB(bytes) {
+  return bytes >= 1024 * 1024
+    ? (bytes / 1024 / 1024).toFixed(1) + ' MB'
+    : Math.round(bytes / 1024) + ' KB';
+}
+
+function showCompressionNote(before, after, count) {
+  let box = document.getElementById('compression-note');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'compression-note';
+    box.style.cssText = 'position:fixed; bottom:18px; right:18px; z-index:999; background:var(--ink-green); color:var(--ivory); padding:12px 16px; font-size:12.5px; line-height:1.5; max-width:260px; box-shadow:0 4px 18px rgba(0,0,0,0.2);';
+    document.body.appendChild(box);
+  }
+  const saved = before - after;
+  const pct = before > 0 ? Math.round((saved / before) * 100) : 0;
+  box.innerHTML = '<b>Compressed ' + count + ' image' + (count > 1 ? 's' : '') + '</b><br>' +
+    fmtKB(before) + ' → ' + fmtKB(after) + ' (' + pct + '% smaller)';
+  box.style.display = '';
+  clearTimeout(window.__compTimer);
+  window.__compTimer = setTimeout(() => { box.style.display = 'none'; }, 6000);
+}
+
+async function uploadFiles(fileList, preset = 'product') {
+  const originals = Array.from(fileList);
+  const compressed = await Promise.all(originals.map(f => compressImage(f, preset)));
+  const before = originals.reduce((s, f) => s + f.size, 0);
+  const after = compressed.reduce((s, f) => s + f.size, 0);
+  if (after < before) showCompressionNote(before, after, originals.length);
+
   const formData = new FormData();
   for (const file of compressed) formData.append('files', file);
   const res = await fetch('/api/admin/upload', { method: 'POST', body: formData });
@@ -800,7 +901,7 @@ document.getElementById('banner-image-input').addEventListener('change', async (
   msg.textContent = 'Uploading image…';
   msg.style.color = 'var(--charcoal-soft)';
   try {
-    const urls = await uploadFiles([files[0]]);
+    const urls = await uploadFiles([files[0]], 'banner');
     bannerImageUrl = urls[0];
     renderBannerImagePreview();
     msg.textContent = '';
@@ -818,7 +919,7 @@ document.getElementById('banner-image-mobile-input').addEventListener('change', 
   msg.textContent = 'Uploading mobile image…';
   msg.style.color = 'var(--charcoal-soft)';
   try {
-    const urls = await uploadFiles([files[0]]);
+    const urls = await uploadFiles([files[0]], 'banner');
     bannerImageMobileUrl = urls[0];
     renderBannerImageMobilePreview();
     msg.textContent = '';
@@ -1468,7 +1569,7 @@ document.getElementById('site-logo-input').addEventListener('change', async (e) 
   const msg = document.getElementById('site-settings-msg');
   msg.textContent = 'Uploading…';
   try {
-    const urls = await uploadFiles([files[0]]);
+    const urls = await uploadFiles([files[0]], 'logo');
     await saveSetting('logo_url', urls[0]);
   } catch (err) {
     msg.textContent = 'Upload error: ' + err.message;

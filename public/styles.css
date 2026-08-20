@@ -1518,3 +1518,78 @@ html { -webkit-text-size-adjust: 100%; }
   .trust-strip-inner.marquee .trust-item { padding-right: 20px; }
   .trust-strip-inner.marquee .trust-item::after { margin-left: 20px; }
 }
+
+
+/* ============================================================
+   FIXES (v3)
+   ============================================================ */
+
+/* ---- Shop by Fabric: make every tile reachable ----
+   The strip is a horizontal scroller, but it was also centred.
+   A centred flex container that overflows pushes its overflow out
+   BOTH sides, and the browser can't scroll to the part that spills
+   left — so the last fabrics (Cambric, anything added later) were
+   unreachable and looked cut off. Scrollers start at flex-start;
+   app.js adds .fits to re-centre only when everything already fits. */
+.category-tiles { justify-content: flex-start; }
+.category-tiles.fits { justify-content: center; }
+.category-tiles { scroll-snap-type: none; overscroll-behavior-x: contain; }
+
+@media (max-width: 720px) {
+  /* container padding is 16px on mobile — the bleed has to match it,
+     otherwise the strip overflows the body and the scroll is clipped */
+  .fabric-swipe-wrap { margin: 0 -16px; }
+  .category-tiles { padding: 4px 16px 16px; scroll-padding-left: 16px; }
+  .category-tiles::-webkit-scrollbar { height: 0; }
+  .category-tile { width: 92px; }
+  .category-tile .tile-photo { width: 84px; height: 84px; }
+}
+
+/* ---- Hero banner: fit the photo to the frame ----
+   The frame takes the uploaded image's own aspect ratio (set from the
+   real photo in index.html), so background-size:cover crops nothing —
+   the whole banner is visible, top to bottom. The banner also starts
+   cleanly BELOW the header bar: the header is in normal flow / sticky,
+   never overlapping, and the hero has no negative offset. */
+.hero {
+  aspect-ratio: var(--hero-ar, 20 / 9);
+  min-height: 0;
+  background-color: var(--ink-green-deep);
+  margin-top: 0;
+}
+.hero-slide {
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+@media (min-width: 721px) {
+  .hero { min-height: 320px; max-height: 78vh; }
+}
+@media (max-width: 720px) {
+  .hero {
+    aspect-ratio: var(--hero-ar, 4 / 5);
+    min-height: 0;
+    max-height: 92vh;
+  }
+  /* A wide (desktop-shaped) photo on a phone gives a short frame — trim the
+     copy to fit it rather than cropping the photo to fit the copy. */
+  .hero.hero-wide .hero-eyebrow,
+  .hero.hero-wide p { display: none; }
+  .hero.hero-wide h1 { font-size: clamp(16px, 4.6vw, 21px); margin-bottom: 8px; }
+  .hero.hero-wide .hero-slide { padding: 12px 16px 14px; }
+  .hero.hero-wide .btn { padding: 9px 16px; font-size: 11px; }
+  .hero-slide {
+    background-image: var(--bg-mobile, var(--bg-desktop, none));
+    background-position: center center;
+    padding: 24px 18px 26px;
+  }
+  /* the photo is fully visible now, so the wash only needs to darken
+     the bottom strip the copy sits on */
+  .hero-overlay {
+    background: linear-gradient(180deg, rgba(10,10,10,0) 0%, rgba(10,10,10,0) 52%, rgba(10,10,10,0.30) 72%, rgba(10,10,10,0.78) 100%);
+  }
+  .hero-dots { bottom: 10px; }
+}
+@supports not (aspect-ratio: 1 / 1) {
+  .hero { min-height: 380px; }
+}
