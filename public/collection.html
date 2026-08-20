@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0A">
 <title>Unstitched Lawn — Calista</title>
 <meta name="description" content="Browse Calista's full collection of unstitched lawn, chiffon, khaddar and silk suits. Filter by fabric and price, cash on delivery available.">
 <link rel="canonical" href="https://calista.pages.dev/collection.html">
@@ -103,6 +104,7 @@
       <label><input type="checkbox" class="f-price" value="8000-999999" checked> Above Rs. 8,000</label>
     </div>
     <button class="clear-filters" id="clear-filters">Clear all filters</button>
+    <button class="filters-apply" id="filters-apply" type="button">Show Results</button>
   </aside>
 
   <div class="collection-main">
@@ -197,8 +199,8 @@ function cardHtml(p) {
       <div class="product-info">
         <a href="/product.html?slug=${p.slug}" class="product-name">${p.name}</a>
         <div class="product-price">${priceHtml(p)}</div>
-        <button class="quick-add-btn-full" data-id="${p.id}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+        <button class="quick-add-btn-full" data-id="${p.id}" aria-label="Add ${p.name} to bag" title="Add to bag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
           <span class="qadd-text">Quick Add</span>
         </button>
       </div>
@@ -258,6 +260,7 @@ document.getElementById('load-more').addEventListener('click', () => { VISIBLE_C
   btn.addEventListener('click', openPanel);
   closeBtn.addEventListener('click', closePanel);
   backdrop.addEventListener('click', closePanel);
+  document.getElementById('filters-apply')?.addEventListener('click', closePanel);
 })();
 
 (async function init() {

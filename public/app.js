@@ -132,10 +132,10 @@ function cartTotal(cart) {
 }
 
 function updateCartBadge() {
-  const badge = document.querySelector('.cart-count');
-  if (!badge) return;
+  const badges = document.querySelectorAll('.cart-count');
+  if (!badges.length) return;
   const count = getCart().reduce((sum, i) => sum + i.qty, 0);
-  badge.textContent = count;
+  badges.forEach(b => { b.textContent = count; });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -145,7 +145,89 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeaderCartIcon();
   ensureSearchOverlay();
   initFabricSwipe();
+  ensureMobileTabBar();
+  initTrustMarquee();
 });
+
+/* ---------------- Trust strip marquee ---------------- */
+function initTrustMarquee() {
+  const row = document.querySelector('.trust-strip-inner');
+  if (!row || row.classList.contains('marquee')) return;
+  const items = [...row.children];
+  if (!items.length) return;
+
+  const track = document.createElement('div');
+  track.className = 'marquee-track';
+  items.forEach(el => track.appendChild(el));
+  // second copy makes the -50% loop seamless
+  items.forEach(el => track.appendChild(el.cloneNode(true)));
+  row.appendChild(track);
+  row.classList.add('marquee');
+
+  // ~55px per second: comfortable reading pace on any screen width
+  requestAnimationFrame(() => {
+    const distance = track.scrollWidth / 2;
+    if (distance > 0) {
+      row.style.setProperty('--marquee-duration', Math.max(18, Math.round(distance / 55)) + 's');
+    }
+  });
+}
+
+/* ---------------- Mobile bottom tab bar ---------------- */
+function ensureMobileTabBar() {
+  if (document.getElementById('mobile-tabbar')) return;
+  if (document.querySelector('.admin-wrap')) return; // admin panel keeps its own layout
+
+  // Product pages already carry a sticky add-to-cart bar — one bottom bar only.
+  if (document.querySelector('.sticky-atc')) {
+    document.body.classList.add('has-sticky-atc');
+    return;
+  }
+
+  const file = (location.pathname.split('/').pop() || 'index.html');
+  const isHome = file === '' || file === 'index.html';
+  const isShop = file.indexOf('collection') === 0;
+  const isCart = file.indexOf('cart') === 0 || file.indexOf('checkout') === 0;
+
+  const nav = document.createElement('nav');
+  nav.className = 'mobile-tabbar';
+  nav.id = 'mobile-tabbar';
+  nav.setAttribute('aria-label', 'Main');
+  nav.innerHTML = `
+    <a href="/index.html" class="${isHome ? 'active' : ''}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 10v10h14V10"/></svg>
+      <span>Home</span>
+    </a>
+    <a href="/collection.html" class="${isShop ? 'active' : ''}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16"/><path d="M3 9h18M9 4v16"/></svg>
+      <span>Shop</span>
+    </a>
+    <a href="#" id="tabbar-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <span>Search</span>
+    </a>
+    <a href="/cart.html" id="tabbar-bag" class="${isCart ? 'active' : ''}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+      <span class="cart-count tab-badge">0</span>
+      <span>Bag</span>
+    </a>
+  `;
+  document.body.appendChild(nav);
+
+  nav.querySelector('#tabbar-search').addEventListener('click', (e) => {
+    e.preventDefault();
+    openSearchOverlay();
+  });
+  // On cart/checkout the Bag tab navigates; elsewhere it opens the slide-up bag.
+  if (!isCart) {
+    nav.querySelector('#tabbar-bag').addEventListener('click', (e) => {
+      e.preventDefault();
+      sessionStorage.setItem('cs_return_url', window.location.href);
+      openCartDrawer();
+    });
+  }
+  updateCartBadge();
+}
 
 async function applySiteLogo() {
   const img = document.getElementById('site-logo-img');
