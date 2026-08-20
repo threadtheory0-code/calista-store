@@ -307,6 +307,40 @@ export default {
       }
     }
 
+    // Reorder "Shop by Fabric" tiles — lower sort_order shows first.
+    if (path === '/api/admin/fabric-categories/reorder' && method === 'POST') {
+      try {
+        const { updates } = await request.json();
+        if (!Array.isArray(updates) || updates.length === 0) {
+          return json({ error: 'No updates provided' }, 400);
+        }
+        const stmts = updates.map(u =>
+          env.DB.prepare('UPDATE fabric_categories SET sort_order = ? WHERE id = ?').bind(Number(u.sort_order), u.id)
+        );
+        await env.DB.batch(stmts);
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // Reorder homepage banners — lower sort_order shows first.
+    if (path === '/api/admin/banners/reorder' && method === 'POST') {
+      try {
+        const { updates } = await request.json();
+        if (!Array.isArray(updates) || updates.length === 0) {
+          return json({ error: 'No updates provided' }, 400);
+        }
+        const stmts = updates.map(u =>
+          env.DB.prepare('UPDATE banners SET sort_order = ? WHERE id = ?').bind(Number(u.sort_order), u.id)
+        );
+        await env.DB.batch(stmts);
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     if (path === '/api/admin/products' && method === 'DELETE') {
       try {
         const id = url.searchParams.get('id');
