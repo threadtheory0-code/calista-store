@@ -151,6 +151,11 @@
     <div class="image-preview-row" id="site-logo-preview"></div>
 
     <h3 class="display" style="font-size:20px; margin:32px 0 6px;">Shop by Fabric Tiles</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:6px;">
+      <label style="margin-right:16px;"><input type="radio" name="fabric-tile-mode" value="auto" checked> Auto — automatically show a real photo from each fabric's products</label>
+      <label><input type="radio" name="fabric-tile-mode" value="manual"> Manual — always use the specific photos I upload below</label>
+    </p>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">In Auto mode, tiles show a random real product photo per fabric (refreshed on each visit) instead of a plain icon — no upload needed. Switch to Manual only if you want to lock in one specific photo per fabric.</p>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:6px;">Edit the display name shown for each fabric (e.g. rename "Lawn" to "Summer Lawn '26" for the season) — this only changes the label shown to customers, not how products are filtered.</p>
     <div class="site-image-grid" style="margin-bottom:18px;">
       <div><label>Lawn label</label><input type="text" class="fabric-label-input" data-key="fabric_label_Lawn" placeholder="Lawn"></div>
@@ -159,7 +164,7 @@
       <div><label>Silk label</label><input type="text" class="fabric-label-input" data-key="fabric_label_Silk" placeholder="Silk"></div>
     </div>
     <button class="btn btn-outline-dark" id="save-fabric-labels-btn" type="button" style="margin-bottom:10px;">Save Fabric Labels</button>
-    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">One image each for the four homepage fabric tiles.</p>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">Manual-mode photos (one each for these four fabrics; ignored while Auto mode is selected above).</p>
     <div class="site-image-grid">
       <div><label>Lawn</label><input type="file" class="site-tile-input" data-key="tile_lawn" accept="image/*"><div class="image-preview-row" id="preview-tile_lawn"></div></div>
       <div><label>Chiffon</label><input type="file" class="site-tile-input" data-key="tile_chiffon" accept="image/*"><div class="image-preview-row" id="preview-tile_chiffon"></div></div>
@@ -1453,6 +1458,9 @@ document.getElementById('save-fabric-labels-btn').addEventListener('click', asyn
 document.querySelectorAll('input[name="gallery-mode"]').forEach(radio => {
   radio.addEventListener('change', () => saveSetting('insta_gallery_mode', radio.value));
 });
+document.querySelectorAll('input[name="fabric-tile-mode"]').forEach(radio => {
+  radio.addEventListener('change', () => saveSetting('fabric_tile_mode', radio.value));
+});
 
 document.getElementById('site-logo-input').addEventListener('change', async (e) => {
   const files = e.target.files;
@@ -1497,6 +1505,8 @@ async function loadSiteSettings() {
     });
     const galleryModeInput = document.querySelector(`input[name="gallery-mode"][value="${SITE_SETTINGS.insta_gallery_mode || 'manual'}"]`);
     if (galleryModeInput) galleryModeInput.checked = true;
+    const fabricTileModeInput = document.querySelector(`input[name="fabric-tile-mode"][value="${SITE_SETTINGS.fabric_tile_mode || 'auto'}"]`);
+    if (fabricTileModeInput) fabricTileModeInput.checked = true;
     if (SITE_SETTINGS.tiktok_pixel_id) {
       document.getElementById('tiktok-pixel-id-input').value = SITE_SETTINGS.tiktok_pixel_id;
     }

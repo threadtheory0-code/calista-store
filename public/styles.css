@@ -231,9 +231,10 @@ img { max-width: 100%; display: block; }
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 30px 24px;
+  gap: 40px 24px;
+  align-items: start;
 }
-.product-card { position: relative; }
+.product-card { position: relative; isolation: isolate; background: var(--ivory); }
 .product-thumb {
   position: relative;
   aspect-ratio: 3/4;
@@ -257,8 +258,14 @@ img { max-width: 100%; display: block; }
   padding: 4px 9px;
   letter-spacing: 0.04em;
 }
-.product-info { padding: 14px 2px; }
+.product-info { padding: 14px 2px; position: relative; z-index: 1; background: var(--ivory); }
 .product-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.6em;
+  line-height: 1.3;
   font-size: 15px;
   font-weight: 500;
   margin-bottom: 6px;
@@ -536,7 +543,6 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
 }
 .btn-outline-dark:hover { background: var(--ink-green); color: var(--ivory); }
 
-.product-name { display: block; }
 .quick-add-btn-full {
   margin-top: 10px;
   width: 100%;
@@ -830,9 +836,11 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
 .cart-drawer-subtotal { display: flex; justify-content: space-between; font-size: 16px; font-weight: 600; margin-bottom: 14px; }
 .cart-drawer-foot .btn { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 .cart-drawer-continue {
-  width: 100%; padding: 12px 0; background: none; border: 1px solid var(--ink-green);
-  color: var(--ink-green); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer;
+  width: 100%; padding: 12px 0; background: #000000; border: 1px solid #000000;
+  color: #FFFFFF; font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
+.cart-drawer-continue:hover { background: #222222; }
 .mobile-menu-toggle {
   display: inline-flex;
   background: none;

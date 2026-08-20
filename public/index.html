@@ -328,23 +328,45 @@ async function loadFabricTiles() {
     const fabrics = await fabricsRes.json();
     const settings = await settingsRes.json();
     if (!Array.isArray(fabrics) || fabrics.length === 0) { track.innerHTML = ''; return; }
+    const tileMode = settings.fabric_tile_mode || 'auto';
 
     track.innerHTML = fabrics.map((f, i) => {
       const settingKey = 'tile_' + f.name.toLowerCase();
       const labelKey = 'fabric_label_' + f.name;
-      const customImg = settings[settingKey];
+      const customImg = tileMode === 'manual' ? settings[settingKey] : null;
       const label = settings[labelKey] || f.name;
       const photoInner = customImg
         ? `<img src="${customImg}" alt="${label}" loading="lazy">`
         : `<span class="tile-icon">${fabricIconSvg(f.icon)}</span>`;
       return `
-        <a class="category-tile" href="/collection.html?fabric=${encodeURIComponent(f.name)}">
+        <a class="category-tile" href="/collection.html?fabric=${encodeURIComponent(f.name)}" data-fabric-tile="${f.name}">
           <span class="tile-photo ${customImg ? '' : 'tile-photo-icon'}">${photoInner}</span>
           <span class="tile-label"><span class="tile-name">${label}</span><span class="tile-cta">Shop Now</span></span>
         </a>
       `;
     }).join('');
     initFabricSwipe();
+
+    // Auto mode: swap the placeholder icon for a real random product photo
+    // per fabric, once fetched — same idea as the Follow gallery's "Random" mode.
+    if (tileMode === 'auto') {
+      fabrics.forEach(async (f) => {
+        try {
+          const res = await fetch('/api/products?fabric=' + encodeURIComponent(f.name));
+          const products = await res.json();
+          if (!Array.isArray(products) || products.length === 0) return;
+          const pick = products[Math.floor(Math.random() * products.length)];
+          if (!pick.image_url) return;
+          const tileLink = track.querySelector(`[data-fabric-tile="${CSS.escape(f.name)}"] .tile-photo`);
+          if (tileLink) {
+            tileLink.classList.remove('tile-photo-icon');
+            tileLink.innerHTML = `<img src="${pick.image_url}" alt="${f.name}" loading="lazy">`;
+          }
+        } catch (e) {
+          // leave the icon fallback in place if this fabric's products can't be fetched
+        }
+      });
+    }
   } catch (e) {
     // leave skeleton state if fabrics can't load
   }

@@ -122,7 +122,7 @@
       ${stockNote}
       <div class="desc">${cleanDescription(product.description)}</div>
       <button class="btn cart-btn" id="add-btn" style="width:100%;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         <span class="cart-btn-text">Add to Cart</span>
       </button>
       <div class="whatsapp-actions">
@@ -192,8 +192,9 @@
 
   document.getElementById('add-btn').addEventListener('click', () => {
     addCurrentToCart();
-    document.getElementById('add-btn').textContent = 'Added ✓';
-    setTimeout(() => { document.getElementById('add-btn').textContent = 'Add to Cart'; }, 1200);
+    const label = document.querySelector('#add-btn .cart-btn-text');
+    label.textContent = 'Added ✓';
+    setTimeout(() => { label.textContent = 'Add to Cart'; }, 1200);
   });
 
   const stickyBar = document.getElementById('sticky-atc');
@@ -207,8 +208,9 @@
 
   stickyBtn.addEventListener('click', () => {
     addCurrentToCart();
-    stickyBtn.textContent = 'Added ✓';
-    setTimeout(() => { stickyBtn.textContent = 'Add to Cart'; }, 1200);
+    const stickyLabel = document.querySelector('#sticky-add-btn .cart-btn-text');
+    stickyLabel.textContent = 'Added ✓';
+    setTimeout(() => { stickyLabel.textContent = 'Add to Cart'; }, 1200);
   });
 
   function initGallery(images) {

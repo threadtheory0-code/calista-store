@@ -121,8 +121,8 @@
       <div class="skeleton-card"></div><div class="skeleton-card"></div>
     </div>
 
-    <div style="text-align:center; margin-top:36px;">
-      <button class="btn btn-outline-dark" id="load-more" style="display:none;">Load More</button>
+    <div style="text-align:center; margin-top:44px; position:relative; z-index:2;">
+      <button class="btn btn-outline-dark" id="load-more" style="display:none; min-width:200px; padding:14px 40px; cursor:pointer;">Load More</button>
     </div>
   </div>
 </div>
@@ -228,9 +228,10 @@ function render() {
       showToast(`Added — ${product.name}`);
       fireConfetti();
       openCartDrawer();
-      const original = btn.textContent;
-      btn.textContent = 'Added ✓';
-      setTimeout(() => { btn.textContent = original; }, 900);
+      const label = btn.querySelector('.qadd-text');
+      const original = label.textContent;
+      label.textContent = 'Added ✓';
+      setTimeout(() => { label.textContent = original; }, 900);
     });
   });
 }
