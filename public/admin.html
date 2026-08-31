@@ -239,15 +239,34 @@
   <div id="tab-menu" style="display:none;">
     <h3 class="display" style="font-size:20px; margin-bottom:6px;">Category Tabs</h3>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:10px;">
-      One place for both menus: every tab here shows in the <b>top category bar</b> on the site
-      (unless you untick it) and in the <b>hamburger menu</b> under the gender you choose.
-      Add, rename, reorder or delete tabs any time — the site picks the change up on the next page load.
+      Two levels: the <b>Top Bar Sections</b> below are the audiences shown above the banner
+      (Ladies, Gents…). The <b>Category Tabs</b> under them — Summer, Winter, Intermix — appear in the
+      hamburger menu and as a second row on the collection page, under the audience you assign them to.
+      Add, rename, reorder or delete either any time; the site picks the change up on the next page load.
     </p>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:16px;">
       <b>Fill a tab automatically:</b> tick the fabrics that belong to it and every product with those
       fabrics appears under it — including ones you add later, with no re-tagging. Ticking products by
       hand ("Assign Products") still works and is added on top.
     </p>
+    <h4 class="display" style="font-size:16px; margin:0 0 6px;">Top Bar Sections</h4>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">
+      The strip directly above the banner. Keep it to audiences — Ladies, Gents, and anything you add
+      later (Kids, Fragrances). Seasonal categories belong in the list below, not up here.
+    </p>
+    <div id="top-sections-root" style="border:1px solid var(--line); padding:14px 16px; margin-bottom:14px;">Loading…</div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:30px;">
+      <input id="new-section-label" placeholder="Section name, e.g. Kids" style="flex:1; min-width:170px; padding:9px 12px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px;">
+      <select id="new-section-gender" style="padding:9px 10px; border:1px solid var(--line); font-size:13px;">
+        <option value="women">Women's tabs</option>
+        <option value="men">Men's tabs</option>
+        <option value="all">All tabs</option>
+      </select>
+      <button class="btn btn-outline-dark" type="button" id="add-section-btn" style="padding:9px 16px; font-size:12px;">Add section</button>
+      <span id="top-sections-msg" style="font-size:13px;"></span>
+    </div>
+
+    <h4 class="display" style="font-size:16px; margin:0 0 6px;">Category Tabs</h4>
     <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:24px; background:var(--ivory-warm);">
       <b style="font-size:13.5px;">Season presets</b>
       <p style="font-size:13px; color:var(--charcoal-soft); margin:6px 0 10px;">
@@ -273,11 +292,7 @@
         <label>Fill automatically from these fabrics (optional)</label>
         <div id="navtab-fabric-checks" style="display:flex; flex-wrap:wrap; gap:10px 18px; padding:10px 12px; border:1px solid var(--line);">Loading fabrics…</div>
       </div>
-      <div class="full">
-        <label style="display:flex; align-items:center; gap:8px; font-weight:400;">
-          <input type="checkbox" name="show_in_topbar" checked> Show this tab in the top category bar on the site
-        </label>
-      </div>
+      <input type="hidden" name="show_in_topbar" value="1">
       <button type="submit" class="btn">Add Tab</button>
       <button type="button" class="admin-delete-btn full" id="navtab-cancel-edit" style="display:none;">Cancel edit</button>
       <div id="navtab-form-msg" class="full" style="font-size:13px;"></div>
@@ -1249,13 +1264,13 @@ async function loadNavTabsAdmin() {
     const genderLabel = { women: 'Women', men: 'Men', all: 'Both' };
     root.innerHTML = `
       <table class="admin-table">
-        <thead><tr><th>Label</th><th>Auto-fills from</th><th>Top bar</th><th>Menu</th><th>Active</th><th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Auto-fills from</th><th>Shows now</th><th>Menu</th><th>Active</th><th></th></tr></thead>
         <tbody>
           ${ALL_NAV_TABS.map(t => `
             <tr>
               <td>${t.label}</td>
               <td style="font-size:12.5px; color:var(--charcoal-soft);">${t.fabrics ? String(t.fabrics).split(',').join(', ') : '<span style="opacity:.6;">hand-picked only</span>'}</td>
-              <td>${t.show_in_topbar === undefined || t.show_in_topbar === null || Number(t.show_in_topbar) === 1 ? 'Yes' : 'No'}</td>
+              <td data-count-for="${t.id}" style="font-size:12.5px;">…</td>
               <td>${genderLabel[t.gender] || t.gender}</td>
               <td>${t.is_active ? 'Yes' : 'No'}</td>
               <td>
@@ -1288,7 +1303,6 @@ async function loadNavTabsAdmin() {
         form.id.value = t.id;
         form.label.value = t.label;
         form.gender.value = t.gender;
-        form.show_in_topbar.checked = t.show_in_topbar === undefined || t.show_in_topbar === null || Number(t.show_in_topbar) === 1;
         renderNavTabFabricChecks(String(t.fabrics || '').split(',').filter(Boolean));
         editingNavTabId = t.id;
         document.getElementById('tab-form-title').textContent = 'Edit Tab';
@@ -1300,6 +1314,7 @@ async function loadNavTabsAdmin() {
     root.querySelectorAll('[data-assign]').forEach(btn => {
       btn.addEventListener('click', () => openAssignPanel(Number(btn.dataset.assign)));
     });
+    loadNavTabCounts();
   } catch (e) {
     root.innerHTML = `<p style="color:var(--gold);">Could not load tabs: ${e.message}</p>`;
   }
@@ -1391,7 +1406,7 @@ function resetNavTabForm() {
   const form = document.getElementById('navtab-form');
   form.reset();
   form.id.value = '';
-  form.show_in_topbar.checked = true;
+
   renderNavTabFabricChecks([]);
   editingNavTabId = null;
   document.getElementById('tab-form-title').textContent = 'Add a Tab';
@@ -1411,7 +1426,7 @@ document.getElementById('navtab-form').addEventListener('submit', async (e) => {
     slug: slugify(label),
     gender: form.gender.value,
     fabrics: [...document.querySelectorAll('#navtab-fabric-checks input:checked')].map(i => i.value),
-    show_in_topbar: form.show_in_topbar.checked
+    show_in_topbar: true
   };
   try {
     if (editingNavTabId) {
@@ -1508,10 +1523,104 @@ loadSubscribers();
 loadSiteSettings();
 loadFabrics();
 loadNavTabsAdmin();
+loadTopSections();
 loadPostexSettings();
 loadDiscounts();
 loadDashboard();
 populateFabricSelects();
+
+/* ---------------- Top bar sections ---------------- */
+let TOP_SECTIONS = null;
+
+async function loadTopSections() {
+  const root = document.getElementById('top-sections-root');
+  if (!root) return;
+  try {
+    const s = await api('/api/admin/settings');
+    let list = [{ label: 'Ladies', gender: 'women' }, { label: 'Gents', gender: 'men' }];
+    if (s.top_sections) {
+      try {
+        const parsed = JSON.parse(s.top_sections);
+        if (Array.isArray(parsed) && parsed.length) list = parsed;
+      } catch (e) {}
+    }
+    TOP_SECTIONS = list;
+    renderTopSectionsAdmin();
+  } catch (e) {
+    root.innerHTML = '<span style="color:var(--gold); font-size:13px;">Could not load: ' + e.message + '</span>';
+  }
+}
+
+function renderTopSectionsAdmin() {
+  const root = document.getElementById('top-sections-root');
+  const genderLabel = { women: "Women's tabs", men: "Men's tabs", all: 'All tabs' };
+  root.innerHTML = TOP_SECTIONS.map((s, i) => `
+    <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:${i === TOP_SECTIONS.length - 1 ? 'none' : '1px solid var(--line)'};">
+      <b style="min-width:110px; font-size:14px;">${s.label}</b>
+      <span style="flex:1; font-size:12.5px; color:var(--charcoal-soft);">shows ${genderLabel[s.gender] || s.gender}</span>
+      <button class="reorder-btn" data-sec-up="${i}" ${i === 0 ? 'disabled' : ''} title="Move left">▲</button>
+      <button class="reorder-btn" data-sec-down="${i}" ${i === TOP_SECTIONS.length - 1 ? 'disabled' : ''} title="Move right">▼</button>
+      <button class="admin-delete-btn" data-sec-del="${i}">Delete</button>
+    </div>`).join('') ||
+    '<span style="font-size:13px; color:var(--charcoal-soft);">No sections — the site falls back to Ladies and Gents.</span>';
+
+  root.querySelectorAll('[data-sec-up]').forEach(b => b.addEventListener('click', () => {
+    const i = Number(b.dataset.secUp);
+    [TOP_SECTIONS[i - 1], TOP_SECTIONS[i]] = [TOP_SECTIONS[i], TOP_SECTIONS[i - 1]];
+    saveTopSections();
+  }));
+  root.querySelectorAll('[data-sec-down]').forEach(b => b.addEventListener('click', () => {
+    const i = Number(b.dataset.secDown);
+    [TOP_SECTIONS[i + 1], TOP_SECTIONS[i]] = [TOP_SECTIONS[i], TOP_SECTIONS[i + 1]];
+    saveTopSections();
+  }));
+  root.querySelectorAll('[data-sec-del]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('Remove this section from the top bar?')) return;
+    TOP_SECTIONS.splice(Number(b.dataset.secDel), 1);
+    saveTopSections();
+  }));
+}
+
+async function saveTopSections() {
+  const msg = document.getElementById('top-sections-msg');
+  try {
+    await api('/api/admin/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ top_sections: JSON.stringify(TOP_SECTIONS) })
+    });
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Saved ✓';
+    renderTopSectionsAdmin();
+  } catch (e) {
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Error: ' + e.message;
+  }
+}
+
+document.getElementById('add-section-btn')?.addEventListener('click', () => {
+  const input = document.getElementById('new-section-label');
+  const label = input.value.trim();
+  if (!label) return;
+  TOP_SECTIONS = TOP_SECTIONS || [];
+  TOP_SECTIONS.push({ label, gender: document.getElementById('new-section-gender').value });
+  input.value = '';
+  saveTopSections();
+});
+
+/* Live count of what each category tab will actually show — this is how you
+   confirm the fabric auto-fill is working without leaving the panel. */
+async function loadNavTabCounts() {
+  try {
+    const counts = await api('/api/admin/nav-tabs/counts');
+    Object.entries(counts).forEach(([id, n]) => {
+      const cell = document.querySelector(`[data-count-for="${id}"]`);
+      if (cell) {
+        cell.textContent = n + (n === 1 ? ' product' : ' products');
+        cell.style.color = n === 0 ? 'var(--gold)' : 'var(--charcoal-soft)';
+      }
+    });
+  } catch (e) {}
+}
 
 /* ============================================================
    PostEx: settings, connection test, and per-order booking

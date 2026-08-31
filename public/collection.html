@@ -271,8 +271,30 @@ document.getElementById('load-more').addEventListener('click', () => { VISIBLE_C
 (async function init() {
   const params = new URLSearchParams(location.search);
   const tabParam = params.get('tab');
+  const genderParam = params.get('gender');
 
-  if (tabParam) {
+  // An audience view (Ladies / Gents) — everything reachable through that
+  // audience's category tabs.
+  if (!tabParam && genderParam) {
+    try {
+      ALL_PRODUCTS = await apiCached('/api/products?gender=' + encodeURIComponent(genderParam));
+    } catch (e) {
+      ALL_PRODUCTS = [];
+    }
+    document.querySelectorAll('.f-fabric, .f-price').forEach(c => c.checked = true);
+    let label = genderParam === 'men' ? 'Gents' : 'Ladies';
+    try {
+      const s = await getSettings();
+      if (s && s.top_sections) {
+        const found = JSON.parse(s.top_sections).find(x => x.gender === genderParam);
+        if (found && found.label) label = found.label;
+      }
+    } catch (e) {}
+    document.title = label + ' — Calista';
+    document.querySelector('.collection-head h1').textContent = label;
+    document.querySelector('.collection-head p').textContent = 'The full ' + label.toLowerCase() + ' edit.';
+    document.querySelector('.breadcrumb span:last-child').textContent = label;
+  } else if (tabParam) {
     TAB_MODE = tabParam;
     try {
       ALL_PRODUCTS = await apiCached('/api/products?tab=' + encodeURIComponent(tabParam));

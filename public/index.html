@@ -251,10 +251,12 @@ async function loadBanners() {
       const styleParts = [];
       if (b.image_url) styleParts.push(`--bg-desktop:url('${b.image_url}')`);
       if (b.image_url_mobile && !b.mobile_fabric_source) styleParts.push(`--bg-mobile:url('${b.image_url_mobile}')`);
+      const imageOnly = !b.heading && !b.eyebrow && !b.subheading;
       return `
-      <div class="hero-slide ${i === 0 ? 'active' : ''}" data-slide="${i}"
+      <div class="hero-slide ${i === 0 ? 'active' : ''}${imageOnly ? ' is-image-only' : ''}" data-slide="${i}"
            ${b.mobile_fabric_source ? `data-fabric-source="${b.mobile_fabric_source}"` : ''}
            ${styleParts.length ? `style="${styleParts.join(';')}"` : ''}>
+        ${imageOnly && b.button_link ? `<a class="hero-image-link" href="${b.button_link}" aria-label="${b.button_text || 'Shop'}"></a>` : ''}
         ${(b.image_url || b.image_url_mobile || b.mobile_fabric_source) ? '<div class="hero-overlay"></div>' : ''}
         <div class="hero-slide-content">
           ${b.eyebrow ? `<div class="hero-eyebrow">${b.eyebrow}</div>` : ''}
