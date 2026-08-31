@@ -28,6 +28,7 @@
     <button class="admin-tab" data-tab="site">Site</button>
     <button class="admin-tab" data-tab="fabrics">Fabrics</button>
     <button class="admin-tab" data-tab="menu">Menu</button>
+    <button class="admin-tab" data-tab="shipping">Shipping</button>
     <button class="admin-tab" data-tab="discounts">Discounts</button>
     <button class="admin-tab" data-tab="dashboard">Dashboard</button>
   </div>
@@ -37,22 +38,12 @@
   </div>
 
   <div id="tab-products" style="display:none;">
-    <h3 class="display" style="font-size:20px; margin-bottom:14px;">Bulk Upload Products (CSV)</h3>
-    <div class="bulk-upload-box">
-      <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">
-        Download the template, fill it in Excel/Google Sheets (one row per product), then upload it here.
-        Re-uploading with an existing slug updates that product instead of duplicating it — so this also works for bulk edits.
-        Image columns need URLs (upload photos individually below first to get URLs, or host them elsewhere).
-      </p>
-      <button class="btn btn-outline-dark" id="download-template-btn" type="button">Download CSV Template</button>
-      <div style="margin-top:16px;">
-        <input type="file" id="csv-file-input" accept=".csv">
-      </div>
-      <div id="csv-preview-root"></div>
-      <div id="csv-upload-msg" style="font-size:13px; margin-top:10px;"></div>
-    </div>
-
-    <h3 class="display" style="font-size:20px; margin:36px 0 14px;">Add Single Product</h3>
+    <h3 class="display" style="font-size:20px; margin-bottom:4px;" id="product-form-title">Add a Product</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:14px;">
+      Fill this in and press <b>Add Product</b> — it goes live immediately, and lands in "Shop by Fabric"
+      and any category tab whose fabrics include the one you pick. To remove a product, use
+      <b>Delete</b> on its row in All Products below (or tick several and use Delete Selected).
+    </p>
     <form class="admin-form" id="product-form">
       <div><label>Name</label><input name="name" required></div>
       <div><label>Slug (URL-safe, unique)</label><input name="slug" required></div>
@@ -76,6 +67,21 @@
       <button type="submit" class="btn">Add Product</button>
       <div id="product-form-msg" class="full" style="font-size:13px;"></div>
     </form>
+
+    <h3 class="display" style="font-size:20px; margin:40px 0 14px; border-top:1px solid var(--line); padding-top:32px;">Or Bulk Upload Products (CSV)</h3>
+    <div class="bulk-upload-box">
+      <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">
+        Download the template, fill it in Excel/Google Sheets (one row per product), then upload it here.
+        Re-uploading with an existing slug updates that product instead of duplicating it — so this also works for bulk edits.
+        Image columns need URLs (upload photos individually below first to get URLs, or host them elsewhere).
+      </p>
+      <button class="btn btn-outline-dark" id="download-template-btn" type="button">Download CSV Template</button>
+      <div style="margin-top:16px;">
+        <input type="file" id="csv-file-input" accept=".csv">
+      </div>
+      <div id="csv-preview-root"></div>
+      <div id="csv-upload-msg" style="font-size:13px; margin-top:10px;"></div>
+    </div>
 
     <h3 class="display" style="font-size:20px; margin-bottom:14px;">All Products</h3>
     <div style="display:flex; gap:12px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
@@ -156,6 +162,15 @@
         You'll see how much was saved after each upload. Upload your originals; no need to resize anything first.
       </p>
     </div>
+    <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:28px;">
+      <b style="font-size:13.5px;">Database update</b>
+      <p style="font-size:13px; color:var(--charcoal-soft); margin:6px 0 10px;">
+        Run this once after uploading this version. It adds the columns the category-tab fabric
+        mapping and PostEx booking need. Safe to press more than once.
+      </p>
+      <button class="btn btn-outline-dark" type="button" id="run-migration-btn" style="padding:9px 16px; font-size:12px;">Run database update</button>
+      <span id="migration-msg" style="font-size:13px; margin-left:12px;"></span>
+    </div>
     <h3 class="display" style="font-size:20px; margin-bottom:6px;">Site Logo</h3>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px;">Upload once to replace the "Calista" text logo everywhere. Best as a wide, transparent PNG.</p>
     <input type="file" id="site-logo-input" accept="image/*">
@@ -222,11 +237,26 @@
   </div>
 
   <div id="tab-menu" style="display:none;">
-    <h3 class="display" style="font-size:20px; margin-bottom:6px;">Hamburger Menu Tabs</h3>
-    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:16px;">
-      Create categories here (e.g. "Unstitched Lawn", "Men Kurta") and pick which gender they show under.
-      They sync automatically into the hamburger menu on the live site — customers tap Women or Men, then tap a tab to see only the products you've assigned to it.
+    <h3 class="display" style="font-size:20px; margin-bottom:6px;">Category Tabs</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:10px;">
+      One place for both menus: every tab here shows in the <b>top category bar</b> on the site
+      (unless you untick it) and in the <b>hamburger menu</b> under the gender you choose.
+      Add, rename, reorder or delete tabs any time — the site picks the change up on the next page load.
     </p>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:16px;">
+      <b>Fill a tab automatically:</b> tick the fabrics that belong to it and every product with those
+      fabrics appears under it — including ones you add later, with no re-tagging. Ticking products by
+      hand ("Assign Products") still works and is added on top.
+    </p>
+    <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:24px; background:var(--ivory-warm);">
+      <b style="font-size:13.5px;">Season presets</b>
+      <p style="font-size:13px; color:var(--charcoal-soft); margin:6px 0 10px;">
+        Creates Summer (Lawn), Winter (Dhanak + Karandi) and Intermix (Cambric + Silk) in one click.
+        Existing tabs with the same name are updated, not duplicated. Any fabric that doesn't exist yet is created.
+      </p>
+      <button class="btn btn-outline-dark" type="button" id="seed-season-tabs-btn" style="padding:9px 16px; font-size:12px;">Create Summer / Winter / Intermix</button>
+      <span id="seed-season-msg" style="font-size:13px; margin-left:12px;"></span>
+    </div>
     <h4 class="display" style="font-size:16px; margin-bottom:10px;" id="tab-form-title">Add a Tab</h4>
     <form class="admin-form" id="navtab-form">
       <input type="hidden" name="id">
@@ -238,6 +268,15 @@
           <option value="men">Men</option>
           <option value="all">Both Women &amp; Men</option>
         </select>
+      </div>
+      <div class="full">
+        <label>Fill automatically from these fabrics (optional)</label>
+        <div id="navtab-fabric-checks" style="display:flex; flex-wrap:wrap; gap:10px 18px; padding:10px 12px; border:1px solid var(--line);">Loading fabrics…</div>
+      </div>
+      <div class="full">
+        <label style="display:flex; align-items:center; gap:8px; font-weight:400;">
+          <input type="checkbox" name="show_in_topbar" checked> Show this tab in the top category bar on the site
+        </label>
       </div>
       <button type="submit" class="btn">Add Tab</button>
       <button type="button" class="admin-delete-btn full" id="navtab-cancel-edit" style="display:none;">Cancel edit</button>
@@ -257,6 +296,36 @@
         <span id="navtab-assign-msg" style="font-size:13px;"></span>
       </div>
     </div>
+  </div>
+
+  <div id="tab-shipping" style="display:none;">
+    <h3 class="display" style="font-size:20px; margin-bottom:6px;">PostEx Booking</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:16px;">
+      Paste your PostEx merchant API token once and every order can be booked straight from the
+      Orders tab — no retyping into the PostEx portal. PostEx returns a CN/tracking number, which is
+      saved on the order and shown to you there. Get the token from your PostEx merchant account
+      (or ask your PostEx representative for the Merchant API token).
+    </p>
+    <form class="admin-form" id="postex-form">
+      <div class="full">
+        <label>PostEx API Token</label>
+        <input name="postex_token" type="password" autocomplete="off" placeholder="Paste your merchant API token">
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Stored server-side and never sent to the storefront.</p>
+      </div>
+      <div>
+        <label>Default Pickup Address</label>
+        <select name="postex_pickup_code" id="postex-pickup-select">
+          <option value="">Load your addresses…</option>
+        </select>
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Save the token first, then press Test connection to load this list.</p>
+      </div>
+      <div style="display:flex; align-items:flex-end; gap:10px;">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="btn btn-outline-dark" id="postex-test-btn">Test connection</button>
+      </div>
+      <div id="postex-msg" class="full" style="font-size:13px;"></div>
+    </form>
+    <div id="postex-status-box" style="margin-top:20px; font-size:13px;"></div>
   </div>
 
   <div id="tab-discounts" style="display:none;">
@@ -302,7 +371,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    ['orders','products','banners','subscribers','site','fabrics','menu','discounts','dashboard'].forEach(name => {
+    ['orders','products','banners','subscribers','site','fabrics','menu','shipping','discounts','dashboard'].forEach(name => {
       document.getElementById('tab-' + name).style.display = tab.dataset.tab === name ? '' : 'none';
     });
   });
@@ -512,7 +581,7 @@ async function loadOrders() {
     root.innerHTML = `
       <table class="admin-table">
         <thead><tr>
-          <th>#</th><th>Customer</th><th>Phone</th><th>Address</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th>
+          <th>#</th><th>Customer</th><th>Phone</th><th>Address</th><th>Items</th><th>Total</th><th>Status</th><th>PostEx</th><th>Date</th>
         </tr></thead>
         <tbody>
           ${orders.map(o => {
@@ -532,6 +601,15 @@ async function loadOrders() {
                       `<option value="${s}" ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
                   </select>
                 </td>
+                <td style="white-space:nowrap;">
+                  ${o.postex_tracking ? `
+                    <div style="font-size:12px; font-family:monospace;">${o.postex_tracking}</div>
+                    <div style="font-size:11.5px; color:var(--charcoal-soft); margin:2px 0 4px;">${o.postex_status || 'Booked'}</div>
+                    <button class="admin-delete-btn" data-px-track="${o.postex_tracking}" style="font-size:11px;">Refresh</button>
+                  ` : `
+                    <button class="btn btn-outline-dark" data-px-book="${o.id}" style="padding:6px 12px; font-size:11.5px;">Book with PostEx</button>
+                  `}
+                </td>
                 <td>${o.created_at || ''}</td>
               </tr>
             `;
@@ -539,6 +617,22 @@ async function loadOrders() {
         </tbody>
       </table>
     `;
+    root.querySelectorAll('[data-px-book]').forEach(btn => {
+      btn.addEventListener('click', () => openPostexBooking(Number(btn.dataset.pxBook), orders));
+    });
+    root.querySelectorAll('[data-px-track]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true; btn.textContent = '…';
+        try {
+          const r = await api('/api/admin/postex/track?tracking=' + encodeURIComponent(btn.dataset.pxTrack));
+          alert('PostEx status: ' + (r.status || 'unknown'));
+          loadOrders();
+        } catch (e) {
+          alert('Could not refresh: ' + e.message);
+          btn.disabled = false; btn.textContent = 'Refresh';
+        }
+      });
+    });
     root.querySelectorAll('.admin-status-select').forEach(sel => {
       sel.addEventListener('change', async () => {
         try {
@@ -1141,6 +1235,11 @@ let currentAssignedIds = new Set();
 
 async function loadNavTabsAdmin() {
   const root = document.getElementById('navtabs-root');
+  renderNavTabFabricChecks(
+    editingNavTabId
+      ? String((ALL_NAV_TABS.find(t => t.id === editingNavTabId) || {}).fabrics || '').split(',').filter(Boolean)
+      : []
+  );
   try {
     ALL_NAV_TABS = await api('/api/admin/nav-tabs');
     if (ALL_NAV_TABS.length === 0) {
@@ -1150,11 +1249,13 @@ async function loadNavTabsAdmin() {
     const genderLabel = { women: 'Women', men: 'Men', all: 'Both' };
     root.innerHTML = `
       <table class="admin-table">
-        <thead><tr><th>Label</th><th>Shows Under</th><th>Active</th><th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Auto-fills from</th><th>Top bar</th><th>Menu</th><th>Active</th><th></th></tr></thead>
         <tbody>
           ${ALL_NAV_TABS.map(t => `
             <tr>
               <td>${t.label}</td>
+              <td style="font-size:12.5px; color:var(--charcoal-soft);">${t.fabrics ? String(t.fabrics).split(',').join(', ') : '<span style="opacity:.6;">hand-picked only</span>'}</td>
+              <td>${t.show_in_topbar === undefined || t.show_in_topbar === null || Number(t.show_in_topbar) === 1 ? 'Yes' : 'No'}</td>
               <td>${genderLabel[t.gender] || t.gender}</td>
               <td>${t.is_active ? 'Yes' : 'No'}</td>
               <td>
@@ -1187,6 +1288,8 @@ async function loadNavTabsAdmin() {
         form.id.value = t.id;
         form.label.value = t.label;
         form.gender.value = t.gender;
+        form.show_in_topbar.checked = t.show_in_topbar === undefined || t.show_in_topbar === null || Number(t.show_in_topbar) === 1;
+        renderNavTabFabricChecks(String(t.fabrics || '').split(',').filter(Boolean));
         editingNavTabId = t.id;
         document.getElementById('tab-form-title').textContent = 'Edit Tab';
         document.querySelector('#navtab-form button[type=submit]').textContent = 'Save Changes';
@@ -1206,10 +1309,90 @@ function slugify(label) {
   return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
+// The fabric checklist is rebuilt from the live fabric categories, so a new
+// fabric is immediately available for auto-filling a tab.
+async function renderNavTabFabricChecks(selected = []) {
+  const box = document.getElementById('navtab-fabric-checks');
+  if (!box) return;
+  const chosen = new Set(selected.map(s => String(s).trim().toLowerCase()));
+  try {
+    const fabrics = await api('/api/admin/fabric-categories');
+    if (!fabrics.length) {
+      box.innerHTML = '<span style="font-size:13px; color:var(--charcoal-soft);">No fabrics yet — add them in the Fabrics tab.</span>';
+      return;
+    }
+    box.innerHTML = fabrics.map(f =>
+      `<label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:400;">
+         <input type="checkbox" value="${f.name}"${chosen.has(f.name.toLowerCase()) ? ' checked' : ''}> ${f.name}
+       </label>`
+    ).join('');
+  } catch (e) {
+    box.innerHTML = '<span style="font-size:13px; color:var(--gold);">Could not load fabrics.</span>';
+  }
+}
+
+const SEASON_PRESETS = [
+  { label: 'Summer',   fabrics: ['Lawn'] },
+  { label: 'Winter',   fabrics: ['Dhanak', 'Karandi'] },
+  { label: 'Intermix', fabrics: ['Cambric', 'Silk'] }
+];
+
+document.getElementById('seed-season-tabs-btn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('seed-season-msg');
+  const btn = document.getElementById('seed-season-tabs-btn');
+  btn.disabled = true;
+  msg.style.color = 'var(--charcoal-soft)';
+  msg.textContent = 'Working…';
+  try {
+    // Make sure every fabric the presets need exists first.
+    const existing = await api('/api/admin/fabric-categories');
+    const have = new Set(existing.map(f => f.name.trim().toLowerCase()));
+    for (const p of SEASON_PRESETS) {
+      for (const f of p.fabrics) {
+        if (have.has(f.toLowerCase())) continue;
+        await api('/api/admin/fabric-categories', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: f })
+        });
+        have.add(f.toLowerCase());
+      }
+    }
+    const tabs = await api('/api/admin/nav-tabs');
+    for (const p of SEASON_PRESETS) {
+      const slug = slugify(p.label);
+      const found = tabs.find(t => t.slug === slug || t.label.toLowerCase() === p.label.toLowerCase());
+      const payload = { label: p.label, slug, gender: 'women', fabrics: p.fabrics, show_in_topbar: true };
+      if (found) {
+        payload.id = found.id;
+        payload.sort_order = found.sort_order || 0;
+        await api('/api/admin/nav-tabs', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+      } else {
+        await api('/api/admin/nav-tabs', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+      }
+    }
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Summer, Winter and Intermix are set up ✓';
+    loadNavTabsAdmin();
+    renderNavTabFabricChecks();
+    populateFabricSelects();
+  } catch (e) {
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 function resetNavTabForm() {
   const form = document.getElementById('navtab-form');
   form.reset();
   form.id.value = '';
+  form.show_in_topbar.checked = true;
+  renderNavTabFabricChecks([]);
   editingNavTabId = null;
   document.getElementById('tab-form-title').textContent = 'Add a Tab';
   document.querySelector('#navtab-form button[type=submit]').textContent = 'Add Tab';
@@ -1223,7 +1406,13 @@ document.getElementById('navtab-form').addEventListener('submit', async (e) => {
   const form = e.target;
   const msg = document.getElementById('navtab-form-msg');
   const label = form.label.value.trim();
-  const payload = { label, slug: slugify(label), gender: form.gender.value };
+  const payload = {
+    label,
+    slug: slugify(label),
+    gender: form.gender.value,
+    fabrics: [...document.querySelectorAll('#navtab-fabric-checks input:checked')].map(i => i.value),
+    show_in_topbar: form.show_in_topbar.checked
+  };
   try {
     if (editingNavTabId) {
       payload.id = editingNavTabId;
@@ -1319,9 +1508,183 @@ loadSubscribers();
 loadSiteSettings();
 loadFabrics();
 loadNavTabsAdmin();
+loadPostexSettings();
 loadDiscounts();
 loadDashboard();
 populateFabricSelects();
+
+/* ============================================================
+   PostEx: settings, connection test, and per-order booking
+   ============================================================ */
+let POSTEX_CITIES = null;
+
+async function loadPostexSettings() {
+  try {
+    const s = await api('/api/admin/settings');
+    const form = document.getElementById('postex-form');
+    if (!form) return;
+    // The token is write-only in the UI: we show whether one is saved, never the value.
+    const box = document.getElementById('postex-status-box');
+    if (s.postex_token) {
+      form.postex_token.placeholder = 'A token is saved — paste a new one to replace it';
+      box.innerHTML = '<span style="color:var(--gold);">✓ API token saved.</span> Press <b>Test connection</b> to confirm PostEx accepts it and to load your pickup addresses.';
+    } else {
+      box.innerHTML = '<span style="color:var(--charcoal-soft);">No token saved yet — booking is disabled until you add one.</span>';
+    }
+    if (s.postex_pickup_code) {
+      const sel = document.getElementById('postex-pickup-select');
+      sel.innerHTML = `<option value="${s.postex_pickup_code}" selected>${s.postex_pickup_code} (saved)</option>`;
+    }
+  } catch (e) {}
+}
+
+document.getElementById('postex-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const msg = document.getElementById('postex-msg');
+  const payload = {};
+  if (form.postex_token.value.trim()) payload.postex_token = form.postex_token.value.trim();
+  payload.postex_pickup_code = form.postex_pickup_code.value || '';
+  try {
+    await api('/api/admin/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    });
+    form.postex_token.value = '';
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Saved ✓';
+    loadPostexSettings();
+  } catch (err) {
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Error: ' + err.message;
+  }
+});
+
+document.getElementById('postex-test-btn')?.addEventListener('click', async () => {
+  const box = document.getElementById('postex-status-box');
+  box.innerHTML = 'Contacting PostEx…';
+  try {
+    const [addr, cities] = await Promise.all([
+      api('/api/admin/postex/addresses'),
+      api('/api/admin/postex/cities')
+    ]);
+    POSTEX_CITIES = cities.cities || [];
+    const sel = document.getElementById('postex-pickup-select');
+    const saved = sel.value;
+    sel.innerHTML = '<option value="">— none —</option>' + (addr.addresses || []).map(x =>
+      `<option value="${x.code}"${x.code === saved ? ' selected' : ''}>${x.code} — ${x.city || ''} ${(x.address || '').slice(0, 40)}</option>`
+    ).join('');
+    box.innerHTML = `<span style="color:var(--gold);">✓ Connected.</span> ${(addr.addresses || []).length} pickup address(es), ${POSTEX_CITIES.length} delivery cities. Pick your pickup address above and press Save.`;
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--gold);">Could not connect: ${e.message}</span>`;
+  }
+});
+
+// Small confirm sheet so the amount, pieces and city can be checked before the
+// consignment is created — PostEx rejects city names it doesn't operate in.
+async function openPostexBooking(orderId, orders) {
+  const order = orders.find(o => o.id === orderId);
+  if (!order) return;
+  let items = [];
+  try { items = JSON.parse(order.items_json) || []; } catch (e) {}
+  const pieces = Math.max(1, items.reduce((s, i) => s + (Number(i.qty) || 1), 0));
+
+  if (!POSTEX_CITIES) {
+    try { POSTEX_CITIES = (await api('/api/admin/postex/cities')).cities || []; }
+    catch (e) { POSTEX_CITIES = []; }
+  }
+  const orderCity = String(order.city || '').trim();
+  const match = POSTEX_CITIES.find(c => c.toLowerCase() === orderCity.toLowerCase());
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed; inset:0; background:rgba(10,10,10,0.5); z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px;';
+  wrap.innerHTML = `
+    <div style="background:var(--ivory); max-width:460px; width:100%; padding:24px; max-height:90vh; overflow:auto;">
+      <h3 class="display" style="font-size:19px; margin:0 0 4px;">Book order #${order.id} with PostEx</h3>
+      <p style="font-size:13px; color:var(--charcoal-soft); margin:0 0 18px;">${order.customer_name} · ${order.phone}<br>${order.address}</p>
+      <label style="font-size:12px; letter-spacing:.06em; text-transform:uppercase;">Delivery city</label>
+      ${POSTEX_CITIES.length ? `
+        <select id="px-city" style="width:100%; padding:10px; border:1px solid var(--line); margin:6px 0 4px; font-family:var(--font-body);">
+          ${POSTEX_CITIES.map(c => `<option value="${c}"${match && c === match ? ' selected' : ''}>${c}</option>`).join('')}
+        </select>
+        ${match ? '' : '<p style="font-size:12px; color:var(--gold); margin:0 0 8px;">"' + orderCity + '" isn\'t a PostEx city — pick the closest one.</p>'}
+      ` : `<input id="px-city" value="${orderCity}" style="width:100%; padding:10px; border:1px solid var(--line); margin:6px 0 12px;">`}
+      <div style="display:flex; gap:12px; margin-top:10px;">
+        <div style="flex:1;">
+          <label style="font-size:12px; letter-spacing:.06em; text-transform:uppercase;">COD amount (Rs.)</label>
+          <input id="px-amount" type="number" value="${order.total}" style="width:100%; padding:10px; border:1px solid var(--line); margin-top:6px;">
+        </div>
+        <div style="width:110px;">
+          <label style="font-size:12px; letter-spacing:.06em; text-transform:uppercase;">Pieces</label>
+          <input id="px-items" type="number" value="${pieces}" style="width:100%; padding:10px; border:1px solid var(--line); margin-top:6px;">
+        </div>
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-top:12px;">
+        <input type="checkbox" id="px-prepaid"> Already paid (book with COD amount 0)
+      </label>
+      <label style="font-size:12px; letter-spacing:.06em; text-transform:uppercase; display:block; margin-top:14px;">Notes for the rider (optional)</label>
+      <input id="px-notes" style="width:100%; padding:10px; border:1px solid var(--line); margin-top:6px;">
+      <div id="px-msg" style="font-size:13px; margin-top:14px;"></div>
+      <div style="display:flex; gap:10px; margin-top:18px;">
+        <button class="btn" id="px-confirm" style="flex:1;">Book consignment</button>
+        <button class="btn btn-outline-dark" id="px-cancel">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  const close = () => wrap.remove();
+  wrap.querySelector('#px-cancel').addEventListener('click', close);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+
+  wrap.querySelector('#px-confirm').addEventListener('click', async () => {
+    const btn = wrap.querySelector('#px-confirm');
+    const msg = wrap.querySelector('#px-msg');
+    btn.disabled = true;
+    msg.style.color = 'var(--charcoal-soft)';
+    msg.textContent = 'Booking with PostEx…';
+    try {
+      const r = await api('/api/admin/postex/book', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: order.id,
+          city: wrap.querySelector('#px-city').value,
+          amount: Number(wrap.querySelector('#px-amount').value),
+          items: Number(wrap.querySelector('#px-items').value),
+          prepaid: wrap.querySelector('#px-prepaid').checked,
+          notes: wrap.querySelector('#px-notes').value
+        })
+      });
+      msg.style.color = 'var(--gold)';
+      msg.textContent = 'Booked ✓ Tracking ' + r.tracking;
+      setTimeout(() => { close(); loadOrders(); }, 1200);
+    } catch (e) {
+      msg.style.color = 'var(--gold)';
+      msg.textContent = e.message;
+      btn.disabled = false;
+    }
+  });
+}
+
+document.getElementById('run-migration-btn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('migration-msg');
+  const btn = document.getElementById('run-migration-btn');
+  btn.disabled = true;
+  msg.style.color = 'var(--charcoal-soft)';
+  msg.textContent = 'Running…';
+  try {
+    const r = await api('/api/admin/migrate', { method: 'POST' });
+    msg.style.color = 'var(--gold)';
+    msg.textContent = r.applied.length
+      ? 'Done ✓ ' + r.applied.length + ' column(s) added.'
+      : 'Already up to date ✓';
+    loadNavTabsAdmin();
+    loadOrders();
+  } catch (e) {
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 async function populateFabricSelects() {
   try {

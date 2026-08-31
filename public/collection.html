@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0A0A0A">
-<title>Unstitched Lawn — Calista</title>
+<title>Unstitched Collection — Calista</title>
 <meta name="description" content="Browse Calista's full collection of unstitched lawn, chiffon, khaddar and silk suits. Filter by fabric and price, cash on delivery available.">
 <link rel="canonical" href="https://calista.pages.dev/collection.html">
 <meta property="og:title" content="Shop Unstitched Suits — Calista">
@@ -70,12 +70,12 @@
 </nav>
 
 <div class="breadcrumb container">
-  <a href="/index.html">Home</a> <span>/</span> <span>Unstitched Lawn</span>
+  <a href="/index.html">Home</a> <span>/</span> <span>Unstitched Collection</span>
 </div>
 
 <div class="collection-head container">
-  <h1>Unstitched Lawn</h1>
-  <p>Embroidered, printed and luxury lawn — three-piece suits ready to stitch your way.</p>
+  <h1>Unstitched Collection</h1>
+  <p>Lawn, chiffon, khaddar, silk and more — three-piece suits ready to stitch your way.</p>
 </div>
 
 <div class="collection-layout container">
@@ -144,7 +144,7 @@
     </div>
     <div>
       <h4>Shop</h4>
-      <ul><li><a href="/collection.html?view=lawn">Unstitched Lawn</a></li><li><a href="/cart.html">Cart</a></li></ul>
+      <ul><li><a href="/collection.html?view=lawn">Unstitched Collection</a></li><li><a href="/cart.html">Cart</a></li></ul>
     </div>
     <div>
       <h4>Support</h4>
@@ -326,9 +326,9 @@ document.getElementById('load-more').addEventListener('click', () => { VISIBLE_C
   const viewParam = params.get('view');
   if (viewParam && ['lawn', 'new', 'sale'].includes(viewParam)) {
     VIEW_MODE = viewParam;
-    const titles = { lawn: 'Unstitched Lawn', new: 'New Arrivals', sale: 'Sale' };
+    const titles = { lawn: 'Unstitched Collection', new: 'New Arrivals', sale: 'Sale' };
     const subs = {
-      lawn: 'Our hand-picked unstitched lawn edit.',
+      lawn: 'Our hand-picked unstitched edit.',
       new: 'The latest additions to Calista.',
       sale: 'Limited-time discounted picks.'
     };

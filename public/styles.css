@@ -1198,7 +1198,9 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
    of the desktop banner.
    ============================================================ */
 .hero-slide {
-  background-image: var(--bg-desktop, none);
+  /* If only a mobile image was uploaded, desktop uses it rather than showing
+     an empty dark panel — the "black banner" on desktop. */
+  background-image: var(--bg-desktop, var(--bg-mobile, none));
   background-position: center;
   background-size: cover;
 }
@@ -1592,4 +1594,107 @@ html { -webkit-text-size-adjust: 100%; }
 }
 @supports not (aspect-ratio: 1 / 1) {
   .hero { min-height: 380px; }
+}
+
+
+/* ============================================================
+   v4 — desktop hero, page-width guard, category tab bar
+   ============================================================ */
+
+/* No horizontal scroll at any width. `clip` (not `hidden`) because
+   `hidden` on the root would break position:sticky on the header.
+   This is what removed the white band on the right of the desktop page. */
+html { overflow-x: clip; }
+body { overflow-x: clip; max-width: 100%; }
+
+/* ---- Hero: truly edge to edge, photo actually visible ----
+   The desktop overlay used to be a flat 55-65% black wash over the whole
+   image, which turned darker banner photos into near-black rectangles
+   (mobile had already been given a lighter, bottom-weighted gradient —
+   that's why mobile looked right and desktop didn't). Desktop now gets the
+   same treatment: clear at the top, darkening only under the copy. */
+.hero {
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  background-color: var(--ink-green-deep);
+}
+@media (min-width: 721px) {
+  .hero { min-height: 340px; max-height: 76vh; }
+  .hero-overlay {
+    background:
+      linear-gradient(180deg, rgba(10,10,10,0.34) 0%, rgba(10,10,10,0.10) 34%, rgba(10,10,10,0.10) 52%, rgba(10,10,10,0.66) 100%);
+  }
+  /* Copy stays legible over a bright photo without dimming the photo. */
+  .hero h1 { text-shadow: 0 2px 18px rgba(0,0,0,0.5); }
+  .hero p, .hero-eyebrow { text-shadow: 0 1px 12px rgba(0,0,0,0.55); }
+  /* A portrait/square upload can't be shown whole AND edge to edge on a wide
+     screen, so a wide frame is used and the photo fills it from the upper
+     third — the standard e-commerce banner crop. Wide uploads keep their own
+     ratio and are shown complete. */
+  .hero.hero-crop { aspect-ratio: 16 / 9; }
+  .hero.hero-crop .hero-slide { background-position: center 26%; }
+}
+
+/* ---- Category tab bar (top-level categories, admin managed) ---- */
+.cat-tabs {
+  background: var(--ivory);
+  border-bottom: 1px solid var(--line);
+  position: relative;
+  z-index: 60;
+}
+.cat-tabs:empty { display: none; }
+.cat-tabs-inner {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 4px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.cat-tabs-inner::-webkit-scrollbar { display: none; }
+.cat-tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 15px 18px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--charcoal);
+  white-space: nowrap;
+  position: relative;
+  transition: color 0.18s ease;
+}
+.cat-tab::after {
+  content: '';
+  position: absolute;
+  left: 18px; right: 18px; bottom: 0;
+  height: 2px;
+  background: transparent;
+  transition: background 0.18s ease;
+}
+.cat-tab:hover { color: var(--ink-green); }
+.cat-tab:hover::after { background: var(--line); }
+.cat-tab.active { color: var(--ink-green-deep); font-weight: 600; }
+.cat-tab.active::after { background: var(--gold); }
+.cat-tab:focus-visible { outline: 2px solid var(--gold); outline-offset: -4px; }
+
+@media (max-width: 720px) {
+  .cat-tabs-inner {
+    justify-content: flex-start;
+    padding: 0 12px;
+    gap: 0;
+  }
+  .cat-tab {
+    padding: 13px 13px;
+    font-size: 11.5px;
+    letter-spacing: 0.11em;
+    min-height: 46px;
+  }
+  .cat-tab::after { left: 13px; right: 13px; }
 }

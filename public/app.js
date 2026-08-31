@@ -198,7 +198,54 @@ document.addEventListener('DOMContentLoaded', () => {
   initFabricSwipe();
   ensureMobileTabBar();
   initTrustMarquee();
+  renderCategoryTabs();
 });
+
+/* ---------------- Top-level category tabs ----------------
+   Same idea as the category tabs on the big Pakistani fashion sites: one
+   always-visible row of top-level categories under the header. Every tab is
+   a row in the admin panel's Menu tab, so tabs can be added, renamed,
+   reordered or deleted without touching code. On phones the row scrolls
+   horizontally instead of wrapping. */
+async function renderCategoryTabs() {
+  const header = document.querySelector('.site-header');
+  if (!header || document.getElementById('cat-tabs')) return;
+  if (document.querySelector('.admin-wrap')) return;
+
+  let tabs = [];
+  try {
+    tabs = await apiCached('/api/nav-tabs');
+  } catch (e) { return; }
+  if (!Array.isArray(tabs)) return;
+
+  const shown = tabs
+    .filter(t => t.show_in_topbar === undefined || t.show_in_topbar === null || Number(t.show_in_topbar) === 1)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  if (shown.length === 0) return;
+
+  const current = new URLSearchParams(location.search).get('tab');
+  const nav = document.createElement('nav');
+  nav.className = 'cat-tabs';
+  nav.id = 'cat-tabs';
+  nav.setAttribute('aria-label', 'Categories');
+  nav.innerHTML = '<div class="cat-tabs-inner">' + shown.map(t =>
+    `<a class="cat-tab${t.slug === current ? ' active' : ''}" href="/collection.html?tab=${encodeURIComponent(t.slug)}"${t.slug === current ? ' aria-current="page"' : ''}>${escapeHtml(t.label)}</a>`
+  ).join('') + '</div>';
+  header.insertAdjacentElement('afterend', nav);
+
+  // Keep the active tab in view on a narrow screen.
+  const active = nav.querySelector('.cat-tab.active');
+  if (active) {
+    const row = nav.querySelector('.cat-tabs-inner');
+    row.scrollLeft = Math.max(0, active.offsetLeft - 16);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 /* ---------------- Trust strip marquee ---------------- */
 function initTrustMarquee() {

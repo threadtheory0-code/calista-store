@@ -255,7 +255,7 @@ async function loadBanners() {
       <div class="hero-slide ${i === 0 ? 'active' : ''}" data-slide="${i}"
            ${b.mobile_fabric_source ? `data-fabric-source="${b.mobile_fabric_source}"` : ''}
            ${styleParts.length ? `style="${styleParts.join(';')}"` : ''}>
-        ${b.image_url ? '<div class="hero-overlay"></div>' : ''}
+        ${(b.image_url || b.image_url_mobile || b.mobile_fabric_source) ? '<div class="hero-overlay"></div>' : ''}
         <div class="hero-slide-content">
           ${b.eyebrow ? `<div class="hero-eyebrow">${b.eyebrow}</div>` : ''}
           <h1>${b.heading}</h1>
@@ -307,7 +307,9 @@ function fitHeroToImage() {
   if (!slide) return;
   const mobile = window.matchMedia('(max-width: 720px)').matches;
   const cs = getComputedStyle(slide);
-  const raw = (mobile ? cs.getPropertyValue('--bg-mobile') : '') || cs.getPropertyValue('--bg-desktop');
+  const raw = (mobile ? cs.getPropertyValue('--bg-mobile') : '')
+    || cs.getPropertyValue('--bg-desktop')
+    || cs.getPropertyValue('--bg-mobile');
   const match = (raw || '').match(/url\(["']?([^"')]+)["']?\)/);
   if (!match) return;
   const img = new Image();
@@ -316,7 +318,14 @@ function fitHeroToImage() {
   img.onload = () => {
     if (!img.naturalWidth || !img.naturalHeight) return;
     const ar = img.naturalWidth / img.naturalHeight;
-    hero.style.setProperty('--hero-ar', img.naturalWidth + ' / ' + img.naturalHeight);
+    // Desktop: a wide upload keeps its own shape and is shown whole; a
+    // portrait/square upload gets a wide frame and is cropped to fill it,
+    // because a tall photo can't be both complete and edge to edge on a
+    // wide screen. Mobile keeps the photo's own shape either way.
+    const cropOnDesktop = !mobile && ar < 1.25;
+    hero.classList.toggle('hero-crop', cropOnDesktop);
+    if (cropOnDesktop) hero.style.removeProperty('--hero-ar');
+    else hero.style.setProperty('--hero-ar', img.naturalWidth + ' / ' + img.naturalHeight);
     hero.classList.toggle('hero-wide', mobile && ar > 1.2);
   };
   img.src = match[1];
