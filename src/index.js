@@ -1,5 +1,3 @@
-import { handleAdmin } from './api-admin.js';
-
 function calculateDiscount(discount, cart) {
   if (!Array.isArray(cart) || cart.length === 0) return { error: 'Cart is empty' };
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
@@ -63,6 +61,13 @@ function unauthorized() {
   });
 }
 
+// "Lawn, dhanak ,Karandi" -> "lawn,dhanak,karandi"
+function normaliseFabrics(input) {
+  const list = Array.isArray(input) ? input : String(input || '').split(',');
+  const clean = list.map(s => String(s).trim()).filter(Boolean);
+  return clean.length ? clean.join(',') : null;
+}
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -123,12 +128,6 @@ export default {
     const path = url.pathname;
     const method = request.method;
 
-    // The Android merchant app sends "Authorization: Bearer <token>".
-    // Hand the request to the app API first — handleAdmin returns null for anything
-    // that is not its own, so the website's Basic-auth admin below is untouched.
-    const app_response = await handleAdmin(request, env);
-    if (app_response) return app_response;
-
     const isAdminRoute = path === '/admin.html' || path.startsWith('/api/admin/');
     if (isAdminRoute && !checkAdminAuth(request, env)) {
       return unauthorized();
@@ -172,6 +171,28 @@ export default {
       }
     }
 
+    // Adds the columns this build needs. Safe to run repeatedly: SQLite errors
+    // on a duplicate column, which we swallow per statement.
+    if (path === '/api/admin/migrate' && method === 'POST') {
+      const migrations = [
+        "ALTER TABLE nav_tabs ADD COLUMN fabrics TEXT",
+        "ALTER TABLE nav_tabs ADD COLUMN show_in_topbar INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE orders ADD COLUMN postex_tracking TEXT",
+        "ALTER TABLE orders ADD COLUMN postex_status TEXT",
+        "ALTER TABLE orders ADD COLUMN postex_booked_at TEXT"
+      ];
+      const applied = [], skipped = [];
+      for (const sql of migrations) {
+        try {
+          await env.DB.prepare(sql).run();
+          applied.push(sql);
+        } catch (err) {
+          skipped.push(sql.split('ADD COLUMN ')[1] + ' — already present');
+        }
+      }
+      return json({ success: true, applied, skipped });
+    }
+
     if (path === '/api/admin/orders' && method === 'GET') {
       try {
         const { results } = await env.DB
@@ -190,7 +211,7 @@ export default {
         if (!id || !allowed.includes(status)) {
           return json({ error: 'Invalid id or status' }, 400);
         }
-        await env.DB.prepare("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?").bind(status, id).run();
+        await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, id).run();
         return json({ success: true });
       } catch (err) {
         return json({ error: err.message }, 500);
@@ -613,7 +634,13 @@ export default {
       try {
         const { results } = await env.DB.prepare('SELECT key, value FROM site_settings').all();
         const settings = {};
-        results.forEach(r => { settings[r.key] = r.value; });
+        // Courier credentials live in the same table but must never reach the
+        // storefront — this endpoint is public.
+        const SECRET_PREFIXES = ['postex_'];
+        results.forEach(r => {
+          if (SECRET_PREFIXES.some(p => r.key.startsWith(p))) return;
+          settings[r.key] = r.value;
+        });
         return json(settings);
       } catch (err) {
         return json({ error: err.message }, 500);
@@ -635,6 +662,172 @@ export default {
       } catch (err) {
         return json({ id: null });
       }
+    }
+
+    /* ============================================================
+       PostEx — direct order booking (Shopify-app style)
+       ------------------------------------------------------------
+       The merchant API token and default pickup address code are
+       stored in site_settings (postex_token / postex_pickup_code) and
+       never sent to the storefront. Booking an order calls PostEx's
+       create-order endpoint and stores the returned tracking number
+       on the order row, so the admin never retypes an order.
+       Docs: api.postex.pk/services/integration/api/order/*
+       ============================================================ */
+    if (path.startsWith('/api/admin/postex/')) {
+      const POSTEX_BASE = 'https://api.postex.pk/services/integration/api/order';
+
+      const getToken = async () => {
+        const row = await env.DB
+          .prepare("SELECT value FROM site_settings WHERE key = 'postex_token'").first();
+        return row && row.value ? row.value.trim() : null;
+      };
+
+      const postexFetch = async (endpoint, init = {}) => {
+        const token = await getToken();
+        if (!token) {
+          return { ok: false, error: 'No PostEx API token saved yet. Add it under Shipping in the admin panel.' };
+        }
+        try {
+          const res = await fetch(POSTEX_BASE + endpoint, {
+            ...init,
+            headers: { token, 'Content-Type': 'application/json', ...(init.headers || {}) }
+          });
+          const text = await res.text();
+          let data = null;
+          try { data = JSON.parse(text); } catch (e) { data = { statusMessage: text }; }
+          if (!res.ok) {
+            return { ok: false, error: (data && (data.statusMessage || data.message)) || ('PostEx returned ' + res.status), data };
+          }
+          return { ok: true, data };
+        } catch (err) {
+          return { ok: false, error: 'Could not reach PostEx: ' + err.message };
+        }
+      };
+
+      // Cities PostEx delivers to — used to populate the booking dropdown.
+      if (path === '/api/admin/postex/cities' && method === 'GET') {
+        const r = await postexFetch('/v2/get-operational-city?operationalCityType=Delivery');
+        if (!r.ok) return json({ error: r.error }, 400);
+        const list = (r.data && (r.data.dist || r.data.data)) || [];
+        const names = list
+          .map(c => c.operationalCityName || c.cityName || c.name)
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b));
+        return json({ cities: names });
+      }
+
+      // The merchant's registered pickup addresses.
+      if (path === '/api/admin/postex/addresses' && method === 'GET') {
+        const r = await postexFetch('/v1/get-merchant-address');
+        if (!r.ok) return json({ error: r.error }, 400);
+        const list = (r.data && (r.data.dist || r.data.data)) || [];
+        return json({
+          addresses: list.map(a => ({
+            code: a.addressCode || a.pickupAddressCode || a.code,
+            city: a.cityName || a.city,
+            address: a.address
+          })).filter(a => a.code)
+        });
+      }
+
+      // Book one order. Everything except city/pieces/amount comes from the
+      // order row, so the admin clicks once.
+      if (path === '/api/admin/postex/book' && method === 'POST') {
+        try {
+          const body = await request.json();
+          const order = await env.DB
+            .prepare('SELECT * FROM orders WHERE id = ?').bind(body.order_id).first();
+          if (!order) return json({ error: 'Order not found' }, 404);
+          if (order.postex_tracking) {
+            return json({ error: 'Already booked with PostEx (' + order.postex_tracking + ')' }, 400);
+          }
+
+          let items = [];
+          try { items = JSON.parse(order.items_json) || []; } catch (e) {}
+          const pieces = Number(body.items) > 0
+            ? Number(body.items)
+            : Math.max(1, items.reduce((s, i) => s + (Number(i.qty) || 1), 0));
+
+          const detail = items.length
+            ? items.map(i => `${i.name} x${i.qty || 1}`).join(', ').slice(0, 240)
+            : ('Order #' + order.id);
+
+          const pickupRow = await env.DB
+            .prepare("SELECT value FROM site_settings WHERE key = 'postex_pickup_code'").first();
+
+          const payload = {
+            cityName: (body.city || order.city || '').trim(),
+            customerName: order.customer_name,
+            // PostEx wants 03xxxxxxxxx
+            customerPhone: String(order.phone || '').replace(/[^0-9]/g, '').replace(/^92/, '0').slice(0, 11),
+            deliveryAddress: order.address,
+            invoiceDivision: 1,
+            invoicePayment: body.prepaid ? 0 : Number(body.amount ?? order.total),
+            items: pieces,
+            orderDetail: detail,
+            orderRefNumber: 'CAL-' + order.id,
+            orderType: 'Normal',
+            transactionNotes: (body.notes || '').slice(0, 240)
+          };
+          if (pickupRow && pickupRow.value) payload.pickupAddressCode = pickupRow.value.trim();
+
+          const r = await postexFetch('/v3/create-order', {
+            method: 'POST', body: JSON.stringify(payload)
+          });
+          if (!r.ok) return json({ error: r.error }, 400);
+
+          const dist = (r.data && r.data.dist) || {};
+          const tracking = dist.trackingNumber || dist.trackingNo || null;
+          if (!tracking) {
+            return json({ error: (r.data && r.data.statusMessage) || 'PostEx did not return a tracking number', raw: r.data }, 400);
+          }
+
+          await env.DB.prepare(
+            `UPDATE orders SET postex_tracking = ?, postex_status = ?, postex_booked_at = datetime('now'),
+                                status = CASE WHEN status = 'pending' THEN 'confirmed' ELSE status END
+             WHERE id = ?`
+          ).bind(tracking, 'Booked', order.id).run();
+
+          return json({ success: true, tracking, order_id: order.id });
+        } catch (err) {
+          return json({ error: err.message }, 500);
+        }
+      }
+
+      // Refresh the delivery status of one booked order.
+      if (path === '/api/admin/postex/track' && method === 'GET') {
+        const tracking = url.searchParams.get('tracking');
+        if (!tracking) return json({ error: 'No tracking number' }, 400);
+        const r = await postexFetch('/v1/track-order/' + encodeURIComponent(tracking));
+        if (!r.ok) return json({ error: r.error }, 400);
+        const d = (r.data && r.data.dist) || {};
+        const status = d.transactionStatus || d.orderStatus || d.status || null;
+        if (status) {
+          await env.DB.prepare('UPDATE orders SET postex_status = ? WHERE postex_tracking = ?')
+            .bind(status, tracking).run();
+        }
+        return json({ success: true, status, history: d.transactionStatusHistory || d.statusHistory || [] });
+      }
+
+      if (path === '/api/admin/postex/cancel' && method === 'POST') {
+        try {
+          const { tracking } = await request.json();
+          if (!tracking) return json({ error: 'No tracking number' }, 400);
+          const r = await postexFetch('/v1/cancel-order', {
+            method: 'PUT', body: JSON.stringify({ trackingNumber: tracking })
+          });
+          if (!r.ok) return json({ error: r.error }, 400);
+          await env.DB.prepare(
+            "UPDATE orders SET postex_status = 'Cancelled', postex_tracking = NULL WHERE postex_tracking = ?"
+          ).bind(tracking).run();
+          return json({ success: true });
+        } catch (err) {
+          return json({ error: err.message }, 500);
+        }
+      }
+
+      return json({ error: 'Unknown PostEx endpoint' }, 404);
     }
 
     if (path === '/api/admin/settings' && method === 'GET') {
@@ -666,6 +859,33 @@ export default {
       try {
         const tabSlug = url.searchParams.get('tab');
         if (tabSlug) {
+          /* A tab can fill itself two ways, and we return the union:
+             1. products the admin ticked for it (nav_tab_products), and
+             2. every product whose fabric is in the tab's fabric list
+                (nav_tabs.fabrics, comma separated) — so "Summer" = Lawn,
+                "Winter" = Dhanak + Karandi, "Intermix" = Cambric + Silk fill
+                automatically as products are added, with no re-tagging. */
+          const tab = await env.DB
+            .prepare('SELECT * FROM nav_tabs WHERE slug = ? AND is_active = 1')
+            .bind(tabSlug).first();
+          if (!tab) return json([]);
+
+          const fabricList = String(tab.fabrics || '')
+            .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+          if (fabricList.length) {
+            const holes = fabricList.map(() => '?').join(',');
+            const { results } = await env.DB.prepare(
+              `SELECT DISTINCT p.* FROM products p
+               LEFT JOIN nav_tab_products ntp
+                 ON ntp.product_id = p.id AND ntp.tab_id = ?
+               WHERE p.is_active = 1
+                 AND (ntp.product_id IS NOT NULL OR LOWER(TRIM(p.fabric)) IN (${holes}))
+               ORDER BY p.sort_order ASC, p.id DESC`
+            ).bind(tab.id, ...fabricList).all();
+            return json(results);
+          }
+
           const { results } = await env.DB.prepare(
             `SELECT p.* FROM products p
              JOIN nav_tab_products ntp ON ntp.product_id = p.id
@@ -720,10 +940,20 @@ export default {
         const t = await request.json();
         if (!t.label || !t.slug) return json({ error: 'Label and slug are required' }, 400);
         const gender = ['men', 'women', 'all'].includes(t.gender) ? t.gender : 'women';
-        await env.DB.prepare(
-          `INSERT INTO nav_tabs (label, slug, gender, sort_order)
-           VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM nav_tabs WHERE gender = ?))`
-        ).bind(t.label.trim(), t.slug.trim().toLowerCase(), gender, gender).run();
+        const fabrics = normaliseFabrics(t.fabrics);
+        const topbar = t.show_in_topbar === false || t.show_in_topbar === 0 ? 0 : 1;
+        try {
+          await env.DB.prepare(
+            `INSERT INTO nav_tabs (label, slug, gender, fabrics, show_in_topbar, sort_order)
+             VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM nav_tabs WHERE gender = ?))`
+          ).bind(t.label.trim(), t.slug.trim().toLowerCase(), gender, fabrics, topbar, gender).run();
+        } catch (colErr) {
+          // Migration not run yet — fall back to the original columns.
+          await env.DB.prepare(
+            `INSERT INTO nav_tabs (label, slug, gender, sort_order)
+             VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM nav_tabs WHERE gender = ?))`
+          ).bind(t.label.trim(), t.slug.trim().toLowerCase(), gender, gender).run();
+        }
         return json({ success: true });
       } catch (err) {
         if (String(err.message).includes('UNIQUE')) return json({ error: 'That slug already exists — choose a different tab name' }, 400);
@@ -736,6 +966,16 @@ export default {
         const t = await request.json();
         if (!t.id || !t.label || !t.slug) return json({ error: 'Missing id, label or slug' }, 400);
         const gender = ['men', 'women', 'all'].includes(t.gender) ? t.gender : 'women';
+        try {
+          await env.DB.prepare(
+            `UPDATE nav_tabs SET label=?, slug=?, gender=?, fabrics=?, show_in_topbar=? WHERE id=?`
+          ).bind(
+            t.label.trim(), t.slug.trim().toLowerCase(), gender,
+            normaliseFabrics(t.fabrics),
+            t.show_in_topbar === false || t.show_in_topbar === 0 ? 0 : 1,
+            t.id
+          ).run();
+        } catch (colErr) { /* migration not run yet */ }
         await env.DB.prepare(
           `UPDATE nav_tabs SET label=?, slug=?, gender=?, sort_order=?, is_active=? WHERE id=?`
         ).bind(
@@ -820,8 +1060,8 @@ export default {
         const total = Math.max(0, subtotal - discountAmount);
 
         await env.DB.prepare(
-          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`
+          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
         ).bind(customer_name, phone, address, city, JSON.stringify(items), total, appliedCode, discountAmount).run();
 
         ctx.waitUntil(notifyNewOrder({ customer_name, phone, address, city, items, total }, env));
