@@ -198,87 +198,36 @@ document.addEventListener('DOMContentLoaded', () => {
   initFabricSwipe();
   ensureMobileTabBar();
   initTrustMarquee();
-  renderTopSections();
+  renderCategorySubTabs();
 });
 
-/* ---------------- Top bar: audience switcher ----------------
-   Same hierarchy as the big Pakistani fashion sites: the strip above the
-   banner carries the AUDIENCE (Ladies / Gents / anything you add later), and
-   the seasonal categories (Summer, Winter, Intermix) live one level down — in
-   the hamburger menu and as a second row on the collection page. The list is
-   admin-managed: Menu tab -> Top Bar Sections. */
-const DEFAULT_TOP_SECTIONS = [
-  { label: 'Ladies', gender: 'women' },
-  { label: 'Gents', gender: 'men' }
-];
-
-async function renderTopSections() {
+/* ---------------- Category row ----------------
+   The seasonal category tabs (Summer, Winter, Intermix…) sit directly under
+   the header on the collection page. Every tab is a row in the admin panel's
+   Menu tab, so they can be added, renamed, reordered or deleted without
+   touching code. On phones the row scrolls sideways instead of wrapping. */
+async function renderCategorySubTabs() {
   const header = document.querySelector('.site-header');
-  if (!header || document.getElementById('cat-tabs')) return;
+  if (!header || document.querySelector('.cat-subtabs')) return;
   if (document.querySelector('.admin-wrap')) return;
-
-  let sections = DEFAULT_TOP_SECTIONS;
-  try {
-    const s = await getSettings();
-    if (s && s.top_sections) {
-      const parsed = JSON.parse(s.top_sections);
-      if (Array.isArray(parsed) && parsed.length) sections = parsed;
-    }
-  } catch (e) {}
-
-  const params = new URLSearchParams(location.search);
-  const currentGender = params.get('gender');
-  const nav = document.createElement('nav');
-  nav.className = 'cat-tabs';
-  nav.id = 'cat-tabs';
-  nav.setAttribute('aria-label', 'Shop for');
-  nav.innerHTML = '<div class="cat-tabs-inner">' + sections.map(s => {
-    const on = currentGender && s.gender === currentGender;
-    return `<a class="cat-tab${on ? ' active' : ''}" href="/collection.html?gender=${encodeURIComponent(s.gender)}"${on ? ' aria-current="page"' : ''}>${escapeHtml(s.label)}</a>`;
-  }).join('') + '</div>';
-  header.insertAdjacentElement('afterend', nav);
-
-  renderCategorySubTabs(nav, currentGender);
-}
-
-/* Second row: the category tabs for the audience being viewed. Only on the
-   collection page, where they're a filter rather than decoration. */
-async function renderCategorySubTabs(topNav, currentGender) {
   if (!/collection\.html/.test(location.pathname)) return;
-  const params = new URLSearchParams(location.search);
-  const currentTab = params.get('tab');
-  if (!currentGender && !currentTab) return;
 
   let tabs = [];
   try { tabs = await apiCached('/api/nav-tabs'); } catch (e) { return; }
   if (!Array.isArray(tabs) || !tabs.length) return;
 
-  // Which audience are we in? Explicit ?gender=, else the gender of ?tab=.
-  let gender = currentGender;
-  if (!gender && currentTab) {
-    const t = tabs.find(x => x.slug === currentTab);
-    gender = t ? t.gender : null;
-  }
-  const list = tabs
-    .filter(t => !gender || t.gender === gender || t.gender === 'all')
-    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  if (!list.length) return;
-
-  // Keep the audience tab lit while browsing one of its categories.
-  if (!currentGender && gender) {
-    const match = topNav.querySelector(`.cat-tab[href*="gender=${gender}"]`);
-    if (match) match.classList.add('active');
-  }
+  const currentTab = new URLSearchParams(location.search).get('tab');
+  const list = tabs.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
   const row = document.createElement('nav');
   row.className = 'cat-subtabs';
   row.setAttribute('aria-label', 'Categories');
   row.innerHTML = '<div class="cat-subtabs-inner">' +
-    `<a class="cat-subtab${currentTab ? '' : ' active'}" href="/collection.html?gender=${encodeURIComponent(gender || '')}">All</a>` +
+    `<a class="cat-subtab${currentTab ? '' : ' active'}" href="/collection.html">All</a>` +
     list.map(t =>
-      `<a class="cat-subtab${t.slug === currentTab ? ' active' : ''}" href="/collection.html?tab=${encodeURIComponent(t.slug)}">${escapeHtml(t.label)}</a>`
+      `<a class="cat-subtab${t.slug === currentTab ? ' active' : ''}" href="/collection.html?tab=${encodeURIComponent(t.slug)}"${t.slug === currentTab ? ' aria-current="page"' : ''}>${escapeHtml(t.label)}</a>`
     ).join('') + '</div>';
-  topNav.insertAdjacentElement('afterend', row);
+  header.insertAdjacentElement('afterend', row);
 
   const active = row.querySelector('.cat-subtab.active');
   if (active) {

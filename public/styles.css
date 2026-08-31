@@ -1636,83 +1636,12 @@ body { overflow-x: clip; max-width: 100%; }
   .hero.hero-crop .hero-slide { background-position: center 26%; }
 }
 
-/* ---- Category tab bar (top-level categories, admin managed) ---- */
-.cat-tabs {
-  background: var(--ivory);
-  border-bottom: 1px solid var(--line);
-  position: relative;
-  z-index: 60;
-}
-.cat-tabs:empty { display: none; }
-.cat-tabs-inner {
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  gap: 4px;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 0 24px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-.cat-tabs-inner::-webkit-scrollbar { display: none; }
-.cat-tab {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  padding: 15px 18px;
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--charcoal);
-  white-space: nowrap;
-  position: relative;
-  transition: color 0.18s ease;
-}
-.cat-tab::after {
-  content: '';
-  position: absolute;
-  left: 18px; right: 18px; bottom: 0;
-  height: 2px;
-  background: transparent;
-  transition: background 0.18s ease;
-}
-.cat-tab:hover { color: var(--ink-green); }
-.cat-tab:hover::after { background: var(--line); }
-.cat-tab.active { color: var(--ink-green-deep); font-weight: 600; }
-.cat-tab.active::after { background: var(--gold); }
-.cat-tab:focus-visible { outline: 2px solid var(--gold); outline-offset: -4px; }
-
-@media (max-width: 720px) {
-  .cat-tabs-inner {
-    justify-content: flex-start;
-    padding: 0 12px;
-    gap: 0;
-  }
-  .cat-tab {
-    padding: 13px 13px;
-    font-size: 11.5px;
-    letter-spacing: 0.11em;
-    min-height: 46px;
-  }
-  .cat-tab::after { left: 13px; right: 13px; }
-}
-
 
 /* ============================================================
-   v5 — audience switcher + category sub-row, cleaner banner
+   v5 — category row + cleaner banner
    ============================================================ */
 
-/* The audience strip sits above the banner and stays quiet: it's a switch,
-   not a headline. */
-.cat-tabs-inner { gap: 0; }
-.cat-tab { letter-spacing: 0.18em; padding: 14px 22px; }
-@media (max-width: 720px) {
-  .cat-tab { letter-spacing: 0.14em; padding: 13px 18px; }
-}
-
-/* Category row — one level down, on the collection page only. */
+/* Category row — under the header on the collection page. */
 .cat-subtabs {
   background: var(--ivory-warm);
   border-bottom: 1px solid var(--line);
