@@ -62,6 +62,60 @@ function unauthorized() {
 }
 
 // "Lawn, dhanak ,Karandi" -> "lawn,dhanak,karandi"
+// tabIds: hand-picked assignments to include. fabrics: fabric names to match.
+// allIfEmpty: when neither is configured, return the whole catalogue.
+async function productsInScope(env, tabIds, fabrics, allIfEmpty) {
+  const order = 'ORDER BY p.sort_order ASC, p.id DESC';
+  if (!tabIds.length && !fabrics.length) {
+    if (!allIfEmpty) return [];
+    const { results } = await env.DB
+      .prepare(`SELECT p.* FROM products p WHERE p.is_active = 1 ${order}`).all();
+    return results;
+  }
+  const conds = [], binds = [];
+  if (tabIds.length) {
+    conds.push(`p.id IN (SELECT product_id FROM nav_tab_products WHERE tab_id IN (${tabIds.map(() => '?').join(',')}))`);
+    binds.push(...tabIds);
+  }
+  if (fabrics.length) {
+    conds.push(`LOWER(TRIM(p.fabric)) IN (${fabrics.map(() => '?').join(',')})`);
+    binds.push(...fabrics);
+  }
+  const { results } = await env.DB.prepare(
+    `SELECT p.* FROM products p WHERE p.is_active = 1 AND (${conds.join(' OR ')}) ${order}`
+  ).bind(...binds).all();
+  return results;
+}
+
+let SCHEMA_READY = false;
+async function ensureSchema(env) {
+  if (SCHEMA_READY) return;
+  const migrations = [
+    "ALTER TABLE nav_tabs ADD COLUMN fabrics TEXT",
+    "ALTER TABLE nav_tabs ADD COLUMN show_in_topbar INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE orders ADD COLUMN postex_tracking TEXT",
+    "ALTER TABLE orders ADD COLUMN postex_status TEXT",
+    "ALTER TABLE orders ADD COLUMN postex_booked_at TEXT"
+  ];
+  for (const sql of migrations) {
+    try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
+  }
+  SCHEMA_READY = true;
+}
+
+// Collect the fabric names and tab ids behind a set of tabs.
+function tabScope(tabs) {
+  const ids = tabs.map(t => t.id);
+  const fabrics = [];
+  tabs.forEach(t => {
+    String(t.fabrics || '').split(',').forEach(f => {
+      const v = f.trim().toLowerCase();
+      if (v && !fabrics.includes(v)) fabrics.push(v);
+    });
+  });
+  return { ids, fabrics };
+}
+
 function normaliseFabrics(input) {
   const list = Array.isArray(input) ? input : String(input || '').split(',');
   const clean = list.map(s => String(s).trim()).filter(Boolean);
@@ -857,44 +911,37 @@ export default {
 
     if (path === '/api/products' && method === 'GET') {
       try {
+        await ensureSchema(env);
+
+        /* A category tab fills itself two ways, and we return the union:
+           1. products the admin ticked for it (nav_tab_products), and
+           2. every product whose fabric is in the tab's fabric list
+              (nav_tabs.fabrics) — so Summer = Lawn, Winter = Dhanak +
+              Karandi, Intermix = Cambric + Silk stay correct as stock is
+              added, with no re-tagging. */
         const tabSlug = url.searchParams.get('tab');
         if (tabSlug) {
-          /* A tab can fill itself two ways, and we return the union:
-             1. products the admin ticked for it (nav_tab_products), and
-             2. every product whose fabric is in the tab's fabric list
-                (nav_tabs.fabrics, comma separated) — so "Summer" = Lawn,
-                "Winter" = Dhanak + Karandi, "Intermix" = Cambric + Silk fill
-                automatically as products are added, with no re-tagging. */
           const tab = await env.DB
             .prepare('SELECT * FROM nav_tabs WHERE slug = ? AND is_active = 1')
             .bind(tabSlug).first();
           if (!tab) return json([]);
-
-          const fabricList = String(tab.fabrics || '')
-            .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-
-          if (fabricList.length) {
-            const holes = fabricList.map(() => '?').join(',');
-            const { results } = await env.DB.prepare(
-              `SELECT DISTINCT p.* FROM products p
-               LEFT JOIN nav_tab_products ntp
-                 ON ntp.product_id = p.id AND ntp.tab_id = ?
-               WHERE p.is_active = 1
-                 AND (ntp.product_id IS NOT NULL OR LOWER(TRIM(p.fabric)) IN (${holes}))
-               ORDER BY p.sort_order ASC, p.id DESC`
-            ).bind(tab.id, ...fabricList).all();
-            return json(results);
-          }
-
-          const { results } = await env.DB.prepare(
-            `SELECT p.* FROM products p
-             JOIN nav_tab_products ntp ON ntp.product_id = p.id
-             JOIN nav_tabs t ON t.id = ntp.tab_id
-             WHERE p.is_active = 1 AND t.slug = ? AND t.is_active = 1
-             ORDER BY p.sort_order ASC, p.id DESC`
-          ).bind(tabSlug).all();
-          return json(results);
+          const { ids, fabrics } = tabScope([tab]);
+          return json(await productsInScope(env, ids, fabrics, false));
         }
+
+        // A top-bar audience (Ladies / Gents / anything added later): every
+        // product reachable through that audience's category tabs.
+        const genderParam = url.searchParams.get('gender');
+        if (genderParam) {
+          const { results: tabs } = await env.DB
+            .prepare("SELECT * FROM nav_tabs WHERE is_active = 1 AND (gender = ? OR gender = 'all')")
+            .bind(genderParam).all();
+          const { ids, fabrics } = tabScope(tabs || []);
+          // No tabs configured for this audience yet — show everything rather
+          // than an empty shop.
+          return json(await productsInScope(env, ids, fabrics, true));
+        }
+
         const fabric = url.searchParams.get('fabric');
         if (fabric) {
           const { results } = await env.DB
@@ -915,6 +962,7 @@ export default {
     /* ---------------- Nav tabs (hamburger menu: Men / Women categories) ---------------- */
     if (path === '/api/nav-tabs' && method === 'GET') {
       try {
+        await ensureSchema(env);
         const { results } = await env.DB
           .prepare('SELECT * FROM nav_tabs WHERE is_active = 1 ORDER BY gender ASC, sort_order ASC')
           .all();
@@ -926,6 +974,7 @@ export default {
 
     if (path === '/api/admin/nav-tabs' && method === 'GET') {
       try {
+        await ensureSchema(env);
         const { results } = await env.DB
           .prepare('SELECT * FROM nav_tabs ORDER BY gender ASC, sort_order ASC')
           .all();
@@ -937,6 +986,7 @@ export default {
 
     if (path === '/api/admin/nav-tabs' && method === 'POST') {
       try {
+        await ensureSchema(env);
         const t = await request.json();
         if (!t.label || !t.slug) return json({ error: 'Label and slug are required' }, 400);
         const gender = ['men', 'women', 'all'].includes(t.gender) ? t.gender : 'women';
@@ -963,6 +1013,7 @@ export default {
 
     if (path === '/api/admin/nav-tabs' && method === 'PATCH') {
       try {
+        await ensureSchema(env);
         const t = await request.json();
         if (!t.id || !t.label || !t.slug) return json({ error: 'Missing id, label or slug' }, 400);
         const gender = ['men', 'women', 'all'].includes(t.gender) ? t.gender : 'women';
@@ -998,6 +1049,23 @@ export default {
           env.DB.prepare('DELETE FROM nav_tabs WHERE id = ?').bind(id)
         ]);
         return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // Live count of what each tab will actually show on the site.
+    if (path === '/api/admin/nav-tabs/counts' && method === 'GET') {
+      try {
+        await ensureSchema(env);
+        const { results: tabs } = await env.DB.prepare('SELECT * FROM nav_tabs').all();
+        const counts = {};
+        for (const t of tabs || []) {
+          const { ids, fabrics } = tabScope([t]);
+          const rows = await productsInScope(env, ids, fabrics, false);
+          counts[t.id] = rows.length;
+        }
+        return json(counts);
       } catch (err) {
         return json({ error: err.message }, 500);
       }
