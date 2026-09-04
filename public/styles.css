@@ -1895,3 +1895,190 @@ body { overflow-x: clip; max-width: 100%; }
   background: var(--ink-green-deep); color: var(--ivory);
   font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
 }
+
+
+/* ============================================================
+   v5 — banner frame, swipe dots, admin tab bar
+   ============================================================ */
+
+/* The banner is now a real <img> in normal flow, so the frame is exactly
+   as tall as the photograph. Nothing to measure, nothing to guess, and no
+   empty band between the picture and the dots. */
+.hero {
+  position: relative;
+  aspect-ratio: auto;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+  background: var(--ivory);
+  color: var(--ivory);
+}
+.hero-frame {
+  position: relative;
+  overflow: hidden;
+  background: var(--ink-green-deep);
+}
+.hero-frame.hero-loading { min-height: 180px; }
+.hero-frame.no-photo { min-height: 300px; display: flex; align-items: center; }
+.hero-frame.no-photo .hero-slide-content { position: static; margin: 0 auto; padding: 40px 24px; }
+.hero-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.hero-photo.is-in { opacity: 1; }
+.hero .hero-slide-content {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 2;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 24px 34px;
+  text-align: center;
+}
+.hero .hero-overlay { z-index: 1; }
+.hero-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  padding: 60px 24px;
+  background: var(--ink-green-deep);
+  text-align: center;
+}
+.hero-fallback .hero-slide-content { position: static; padding: 0; }
+
+/* Dots sit directly under the picture, in the page flow. */
+.hero .hero-dots {
+  position: static;
+  transform: none;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 0 14px;
+  background: var(--ivory);
+}
+.hero .hero-dot {
+  width: 7px; height: 7px;
+  background: rgba(10, 10, 10, 0.18);
+  border: none;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.hero .hero-dot.active { background: var(--gold); transform: scale(1.25); }
+
+@media (min-width: 721px) {
+  .hero-frame { max-height: 74vh; }
+  .hero .hero-slide-content { padding-bottom: 48px; }
+}
+@media (max-width: 720px) {
+  .hero-frame { max-height: 88vh; }
+  .hero .hero-slide-content { padding: 0 18px 24px; }
+  .hero .hero-dots { padding: 10px 0 12px; }
+}
+
+/* Product gallery: dots below the photo, same rule as the banner. */
+.product-gallery-slider { display: block; }
+.product-gallery-slider .gallery-dots {
+  position: static;
+  transform: none;
+  justify-content: center;
+  padding: 10px 0 2px;
+}
+.product-gallery-slider .gallery-dot {
+  background: rgba(10, 10, 10, 0.18);
+  border: none;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.product-gallery-slider .gallery-dot.active { background: var(--gold); transform: scale(1.25); }
+@media (max-width: 720px) {
+  .product-gallery-slider .gallery-dots { padding: 8px 0 0; }
+}
+
+/* Admin tab bar: eleven tabs no longer run off the edge. They wrap on a
+   narrow window and scroll sideways on a phone, and the row is always
+   left-aligned so the first tab starts where the content does. */
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 0 2px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+  overflow: visible;
+}
+.admin-tab {
+  flex: 0 0 auto;
+  padding: 11px 14px;
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  margin-bottom: -1px;
+}
+.admin-tab:hover { color: var(--ink-green-deep); }
+.admin-tab:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+@media (max-width: 720px) {
+  .admin-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .admin-tabs::-webkit-scrollbar { display: none; }
+  .admin-tab { padding: 11px 12px; font-size: 12px; }
+}
+
+.cart-notice {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--gold);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--charcoal);
+}
+.cart-notice b { display: block; margin-bottom: 5px; color: var(--ink-green-deep); font-weight: 500; }
+.cart-notice ul { margin: 0; padding-left: 17px; }
+.cart-notice li { margin-top: 2px; }
+
+
+/* ============================================================
+   v6 — trust badges, minimal treatment
+   The boxed grid read as a second card competing with the
+   product. Only the rules between the claims remain; the
+   explanation under each one stays, because that is what
+   actually settles a cash-on-delivery buyer.
+   ============================================================ */
+.trust-panel {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  display: block;
+  background: none;
+  border: none;
+  gap: 0;
+}
+.trust-panel li {
+  display: grid;
+  gap: 2px;
+  padding: 11px 0;
+  background: none;
+  border-top: 1px solid var(--line);
+}
+.trust-panel li:last-child { border-bottom: 1px solid var(--line); }
+.trust-panel b {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-green-deep);
+}
+.trust-panel span {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--charcoal-soft);
+  text-wrap: pretty;
+}

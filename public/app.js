@@ -43,7 +43,96 @@ const SAMPLE_PRODUCTS = [
     image_url: "/images/placeholder-9.svg", image_url_2: "/images/placeholder-9b.svg", stock: 6 },
 ];
 
-/* ---------------- Cached data layer ----------------
+
+
+/* ============================================================
+   BOOTSTRAP — one request instead of seven
+   Every read-only endpoint the storefront needs now comes from a
+   single /api/bootstrap call. A returning visitor is served the
+   last payload out of localStorage and paints with no network
+   wait at all, while a fresh copy is fetched in the background.
+   ============================================================ */
+
+const BOOT_KEYS = {
+  '/api/products': 'products',
+  '/api/banners': 'banners',
+  '/api/fabric-categories': 'fabrics',
+  '/api/settings': 'settings',
+  '/api/nav-tabs': 'navTabs',
+  '/api/reviews-summary': 'reviews'
+};
+const BOOT_STORE = 'cs_boot_v1';
+const BOOT_FRESH_MS = 120 * 1000;   // serve without asking again
+const BOOT_STALE_MS = 24 * 3600 * 1000; // serve instantly, refresh behind
+
+let _boot = null;
+let _bootPromise = null;
+let _bootUnavailable = false;
+
+function _bootRead() {
+  try {
+    const hit = JSON.parse(localStorage.getItem(BOOT_STORE) || 'null');
+    if (hit && hit.d && typeof hit.t === 'number') return hit;
+  } catch (e) {}
+  return null;
+}
+
+async function _bootFetch() {
+  const res = await fetch('/api/bootstrap');
+  if (!res.ok) throw new Error('bootstrap unavailable');
+  const data = await res.json();
+  if (!data || data.error || !Array.isArray(data.products)) throw new Error('bootstrap malformed');
+  _boot = data;
+  try { localStorage.setItem(BOOT_STORE, JSON.stringify({ t: Date.now(), d: data })); } catch (e) {}
+  return data;
+}
+
+function getBootstrap() {
+  if (_boot) return Promise.resolve(_boot);
+  if (_bootPromise) return _bootPromise;
+
+  const hit = _bootRead();
+  const age = hit ? Date.now() - hit.t : Infinity;
+
+  // Recent enough to trust outright.
+  if (hit && age < BOOT_FRESH_MS) {
+    _boot = hit.d;
+    return Promise.resolve(_boot);
+  }
+  // Old but usable: paint from it now, replace it quietly.
+  if (hit && age < BOOT_STALE_MS) {
+    _boot = hit.d;
+    setTimeout(() => { _bootFetch().catch(() => {}); }, 60);
+    return Promise.resolve(_boot);
+  }
+
+  _bootPromise = _bootFetch().finally(() => { _bootPromise = null; });
+  return _bootPromise;
+}
+
+/* Any page that changes data should drop the stored copy so the next
+   load is honest (used by the cart and by the admin panel). */
+function clearBootstrapCache() {
+  _boot = null;
+  try { localStorage.removeItem(BOOT_STORE); } catch (e) {}
+}
+
+// Replaces the old per-endpoint fetch. Falls back to the individual
+// endpoint if the deployed Worker predates /api/bootstrap.
+async function apiCached(path) {
+  const key = BOOT_KEYS[path];
+  if (key && !_bootUnavailable) {
+    try {
+      const boot = await getBootstrap();
+      if (boot && boot[key] !== undefined) return boot[key];
+    } catch (e) {
+      _bootUnavailable = true;
+    }
+  }
+  return apiDirect(path);
+}
+
+/* ---------------- Per-endpoint fallback layer ----------------
    Every page used to re-fetch /api/products and /api/settings two or
    three times (grid, gallery, fabric tiles, search). Now each endpoint
    is fetched once per page and kept in sessionStorage for 90 seconds,
@@ -59,7 +148,7 @@ const _memo = {};
 // very next page load instead of waiting out a cache.
 const persistable = (path) => path.indexOf('/api/products') === 0;
 
-async function apiCached(path) {
+async function apiDirect(path) {
   if (_memo[path]) return _memo[path];
   if (_inflight[path]) return _inflight[path];
 
@@ -811,8 +900,7 @@ function trustPanelHtml(raw) {
     const parts = line.split('|');
     const title = escapeHtml((parts[0] || '').trim());
     const sub = escapeHtml((parts[1] || '').trim());
-    return '<li><span class="trust-panel-title">' + title + '</span>' +
-      (sub ? '<span class="trust-panel-sub">' + sub + '</span>' : '') + '</li>';
+    return '<li><b>' + title + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</li>';
   }).join('') + '</ul>';
 }
 
@@ -904,3 +992,56 @@ async function hydrateCardStars(root) {
     if (r && r.count) n.innerHTML = starsHtml(r.average, r.count, 12);
   });
 }
+
+
+/* ============================================================
+   CART RECONCILIATION
+   The bag lives in the browser, so its prices can be hours old —
+   or edited by hand. The order endpoint re-prices every line from
+   the database, so an out-of-date bag would otherwise mean a total
+   at checkout that doesn't match what was shown. This brings the
+   bag back in line with the catalogue and says plainly what moved.
+   ============================================================ */
+async function reconcileCart() {
+  const cart = getCart();
+  if (!cart.length) return { changed: [], removed: [] };
+  let products;
+  try { products = await getProducts(); } catch (e) { return { changed: [], removed: [] }; }
+  const byId = {};
+  products.forEach(p => { byId[p.id] = p; });
+
+  const changed = [], removed = [], kept = [];
+  cart.forEach(line => {
+    const p = byId[line.product_id];
+    if (!p) { removed.push(line.name + ' is no longer available'); return; }
+    const stock = (p.stock === null || p.stock === undefined) ? Infinity : Number(p.stock);
+    if (stock <= 0) { removed.push(p.name + ' has sold out'); return; }
+    const next = { ...line, name: p.name, image_url: p.image_url || line.image_url };
+    if (line.qty > stock) {
+      changed.push('Only ' + stock + ' left of ' + p.name + ' — quantity reduced');
+      next.qty = stock;
+    }
+    const unit = (p.sale_price && Number(p.sale_price) > 0) ? Number(p.sale_price) : Number(p.price);
+    if (Number(line.price) !== unit) {
+      changed.push(p.name + ' is now ' + money(unit));
+      next.price = unit;
+    }
+    kept.push(next);
+  });
+
+  if (changed.length || removed.length) saveCart(kept);
+  return { changed, removed };
+}
+
+function cartNoticeHtml(res) {
+  const all = res.removed.concat(res.changed);
+  if (!all.length) return '';
+  return '<div class="cart-notice"><b>Your bag was updated</b><ul>' +
+    all.map(t => '<li>' + escapeHtml(t) + '</li>').join('') + '</ul></div>';
+}
+
+
+/* Hover-swap second photo: only worth downloading on a device that can
+   hover. On a phone it was never shown and still doubled the number of
+   images the grid pulled down. */
+const CAN_HOVER = !window.matchMedia('(hover: none)').matches;

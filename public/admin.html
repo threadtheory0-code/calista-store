@@ -509,6 +509,12 @@ async function api(path, options = {}) {
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Request failed');
   }
+  // Anything saved here changes what the storefront should show, so drop
+  // this browser's stored copy — otherwise the owner checks their own site
+  // after an edit and sees the old version.
+  if (options.method && options.method !== 'GET' && typeof clearBootstrapCache === 'function') {
+    clearBootstrapCache();
+  }
   return res.json();
 }
 

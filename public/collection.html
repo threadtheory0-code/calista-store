@@ -200,7 +200,7 @@ function cardHtml(p) {
     <div class="product-card" data-id="${p.id}">
       <a class="product-thumb" href="/product.html?slug=${p.slug}">
         <img src="${thumbUrl(p.image_url)}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">
-        ${p.image_url_2 ? `<img class="img-alt" src="${thumbUrl(p.image_url_2)}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">` : ''}
+        ${p.image_url_2 && CAN_HOVER ? `<img class="img-alt" src="${thumbUrl(p.image_url_2)}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">` : ''}
         ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
         ${Number(p.stock) <= 0 ? `<span class="badge-soldout">Sold Out</span>` : ''}
       </a>

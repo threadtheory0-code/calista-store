@@ -78,6 +78,8 @@
 
 <script src="/app.js"></script>
 <script>
+let CHECKOUT_NOTICE = '';
+
 function renderSummary() {
   const cart = getCart();
   const discount = JSON.parse(localStorage.getItem('kapra_discount') || 'null');
@@ -104,7 +106,7 @@ function render() {
     return;
   }
 
-  root.innerHTML = renderSummary() + `
+  root.innerHTML = CHECKOUT_NOTICE + renderSummary() + `
     <div id="cod-note-mount"></div>
     <form class="checkout-form" id="checkout-form">
       <div>
@@ -204,6 +206,8 @@ function render() {
       });
       localStorage.removeItem('kapra_cart');
       localStorage.removeItem('kapra_discount');
+      // Stock has moved, so the stored catalogue copy is out of date.
+      if (typeof clearBootstrapCache === 'function') clearBootstrapCache();
       root.innerHTML = `<div class="empty-state">
         <h2 class="display" style="margin-bottom:10px;">Order Placed ✓</h2>
         <p>Thank you! We'll call you shortly to confirm your order.</p>
@@ -220,7 +224,12 @@ function render() {
     }
   });
 }
-render();
+(async () => {
+  // Re-price the bag before the summary is drawn, so what is shown here is
+  // exactly what the order will be booked at.
+  try { CHECKOUT_NOTICE = cartNoticeHtml(await reconcileCart()); } catch (e) {}
+  render();
+})();
 </script>
 <a class="whatsapp-float" href="https://wa.me/923026255682" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">
   <svg viewBox="0 0 32 32" fill="white" xmlns="http://www.w3.org/2000/svg">

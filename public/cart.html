@@ -80,6 +80,8 @@
 <script>
 let ACTIVE_DISCOUNT = JSON.parse(localStorage.getItem('kapra_discount') || 'null');
 
+let CART_NOTICE = '';
+
 async function render() {
   const cart = getCart();
   const root = document.getElementById('cart-root');
@@ -120,7 +122,7 @@ async function render() {
     <div id="discount-msg" style="font-size:12px; margin-top:6px;"></div>
   `;
 
-  root.innerHTML = shippingBar + cart.map((item, i) => `
+  root.innerHTML = CART_NOTICE + shippingBar + cart.map((item, i) => `
     <div class="cart-row">
       <img src="${thumbUrl(item.image_url)}" alt="${item.name}" loading="lazy" decoding="async">
       <div>
@@ -152,7 +154,12 @@ async function render() {
       updateCartQty(Number(e.target.dataset.index), Number(e.target.value));
       ACTIVE_DISCOUNT = null;
       localStorage.removeItem('kapra_discount');
-      render();
+      (async () => {
+  // Bring the bag in line with the catalogue before anything is shown, so
+  // the total here is the total the order will be booked at.
+  try { CART_NOTICE = cartNoticeHtml(await reconcileCart()); } catch (e) {}
+  render();
+})();
     });
   });
   root.querySelectorAll('.remove-link').forEach(link => {
@@ -160,7 +167,12 @@ async function render() {
       removeFromCart(Number(e.target.dataset.index));
       ACTIVE_DISCOUNT = null;
       localStorage.removeItem('kapra_discount');
-      render();
+      (async () => {
+  // Bring the bag in line with the catalogue before anything is shown, so
+  // the total here is the total the order will be booked at.
+  try { CART_NOTICE = cartNoticeHtml(await reconcileCart()); } catch (e) {}
+  render();
+})();
     });
   });
 
@@ -180,7 +192,12 @@ async function render() {
       if (!res.ok) throw new Error(data.error || 'Invalid code');
       ACTIVE_DISCOUNT = { code: data.code, title: data.title, discount_amount: data.discount_amount };
       localStorage.setItem('kapra_discount', JSON.stringify(ACTIVE_DISCOUNT));
-      render();
+      (async () => {
+  // Bring the bag in line with the catalogue before anything is shown, so
+  // the total here is the total the order will be booked at.
+  try { CART_NOTICE = cartNoticeHtml(await reconcileCart()); } catch (e) {}
+  render();
+})();
     } catch (err) {
       msg.textContent = err.message;
       msg.style.color = '#C0392B';
@@ -190,10 +207,20 @@ async function render() {
   document.getElementById('remove-discount-btn')?.addEventListener('click', () => {
     ACTIVE_DISCOUNT = null;
     localStorage.removeItem('kapra_discount');
-    render();
+    (async () => {
+  // Bring the bag in line with the catalogue before anything is shown, so
+  // the total here is the total the order will be booked at.
+  try { CART_NOTICE = cartNoticeHtml(await reconcileCart()); } catch (e) {}
+  render();
+})();
   });
 }
-render();
+(async () => {
+  // Bring the bag in line with the catalogue before anything is shown, so
+  // the total here is the total the order will be booked at.
+  try { CART_NOTICE = cartNoticeHtml(await reconcileCart()); } catch (e) {}
+  render();
+})();
 </script>
 <a class="whatsapp-float" href="https://wa.me/923026255682" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">
   <svg viewBox="0 0 32 32" fill="white" xmlns="http://www.w3.org/2000/svg">

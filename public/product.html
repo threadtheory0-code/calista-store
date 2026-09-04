@@ -116,6 +116,7 @@
   // Filled in once settings load — the note only ever quotes the real
   // stock number, and the threshold is set in Admin → Settings.
   const stockNote = '<div id="stock-note"></div>';
+  const soldOut = Number(product.stock) <= 0 && product.stock !== null && product.stock !== undefined;
 
   root.innerHTML = `
     <div class="product-gallery-slider">
@@ -133,9 +134,9 @@
       <div id="product-stars" class="product-stars"></div>
       ${stockNote}
       <div class="desc">${cleanDescription(product.description)}</div>
-      <button class="btn cart-btn" id="add-btn" style="width:100%;">
+      <button class="btn cart-btn" id="add-btn" style="width:100%;" ${soldOut ? 'disabled' : ''}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-        <span class="cart-btn-text">Add to Cart</span>
+        <span class="cart-btn-text">${soldOut ? 'Sold Out' : 'Add to Cart'}</span>
       </button>
       <div class="whatsapp-actions">
         <a class="whatsapp-inquire-btn" id="whatsapp-inquire" href="#" target="_blank" rel="noopener">

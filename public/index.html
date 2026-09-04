@@ -86,7 +86,7 @@
   <a href="/cart.html" class="drawer-tab-link">Cart</a>
 </nav>
 <section class="hero" id="hero">
-  <div class="hero-slide active" data-slide="0">
+  <div class="hero-fallback">
     <div class="hero-slide-content">
       <div class="hero-eyebrow">New Season</div>
       <h1>Embroidery that speaks before you do.</h1>
@@ -232,7 +232,7 @@
     <a class="product-card" href="/product.html?slug=${p.slug}">
       <div class="product-thumb">
         <img src="${thumbUrl(p.image_url)}" alt="${p.name}" width="600" height="800" decoding="async" ${i < 4 ? 'fetchpriority="high"' : 'loading="lazy"'}>
-        ${p.image_url_2 ? `<img class="img-alt" src="${thumbUrl(p.image_url_2)}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">` : ''}
+        ${p.image_url_2 && CAN_HOVER ? `<img class="img-alt" src="${thumbUrl(p.image_url_2)}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">` : ''}
         ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
         ${Number(p.stock) <= 0 ? `<span class="badge-soldout">Sold Out</span>` : ''}
       </div>
@@ -247,17 +247,23 @@
 })();
 
 let BANNER_SCREEN_WAS_MOBILE = null;
+let HERO = { slides: [], i: 0, timer: null };
 
+/* The banner used to render every slide at once, each with its own
+   background-image, so a ten-banner homepage downloaded ten full-size
+   photos before it was usable. Now there is ONE <img>: the current
+   banner. The next one is fetched quietly a moment before it is needed.
+
+   Using a real <img> in normal flow also means the frame is exactly as
+   tall as the photo — no measuring, no aspect-ratio guesswork, and no
+   empty band under the picture. The dots sit below the frame, in flow. */
 async function loadBanners() {
   const hero = document.getElementById('hero');
+  if (!hero) return;
   try {
     const all = await apiCached('/api/banners');
     if (!Array.isArray(all) || all.length === 0) return;
 
-    /* Per-device banners. "Everyone" banners always show; desktop-only and
-       mobile-only ones are filtered by screen width, so a phone never
-       downloads a banner built for a laptop and vice versa. If the filter
-       leaves nothing, fall back to the full set rather than an empty hero. */
     const onMobile = window.matchMedia('(max-width: 720px)').matches;
     const forThisScreen = all.filter(b => {
       const d = b.device || 'both';
@@ -266,119 +272,126 @@ async function loadBanners() {
     const banners = forThisScreen.length ? forThisScreen : all;
     BANNER_SCREEN_WAS_MOBILE = onMobile;
 
-    hero.innerHTML = banners.map((b, i) => {
-      const styleParts = [];
-      if (b.image_url) styleParts.push(`--bg-desktop:url('${b.image_url}')`);
-      if (b.image_url_mobile && !b.mobile_fabric_source) styleParts.push(`--bg-mobile:url('${b.image_url_mobile}')`);
-      const imageOnly = !b.heading && !b.eyebrow && !b.subheading;
-      return `
-      <div class="hero-slide ${i === 0 ? 'active' : ''}${imageOnly ? ' is-image-only' : ''}" data-slide="${i}"
-           ${b.mobile_fabric_source ? `data-fabric-source="${b.mobile_fabric_source}"` : ''}
-           ${styleParts.length ? `style="${styleParts.join(';')}"` : ''}>
-        ${imageOnly && b.button_link ? `<a class="hero-image-link" href="${b.button_link}" aria-label="${b.button_text || 'Shop'}"></a>` : ''}
-        ${(b.image_url || b.image_url_mobile || b.mobile_fabric_source) ? '<div class="hero-overlay"></div>' : ''}
-        <div class="hero-slide-content">
-          ${b.eyebrow ? `<div class="hero-eyebrow">${b.eyebrow}</div>` : ''}
-          <h1>${b.heading}</h1>
-          ${b.subheading ? `<p>${b.subheading}</p>` : ''}
-          ${b.button_text ? `<a href="${b.button_link || '#'}" class="btn">${b.button_text}</a>` : ''}
-        </div>
-      </div>
-    `;
-    }).join('') + (banners.length > 1 ? `
-      <div class="hero-dots">
-        ${banners.map((b, i) => `<button class="hero-dot ${i === 0 ? 'active' : ''}" data-dot="${i}" aria-label="Slide ${i + 1}"></button>`).join('')}
-      </div>
-    ` : '');
+    // Banners set to "rotate the mobile image from a fabric" pick a real
+    // product photo. Resolved here, off the cached product list, so the
+    // slider itself never waits on anything.
+    let products = null;
+    if (onMobile && banners.some(b => b.mobile_fabric_source)) {
+      try { products = await getProducts(); } catch (e) { products = []; }
+    }
 
-    initHeroSlider();
-    fitHeroToImage();
-    applyFabricRotatedMobileBanners();
+    HERO.slides = banners.map(b => {
+      let photo = onMobile ? (b.image_url_mobile || b.image_url) : b.image_url;
+      if (onMobile && b.mobile_fabric_source && products) {
+        const fabric = String(b.mobile_fabric_source).toLowerCase();
+        const pool = products.filter(p => (p.fabric || '').toLowerCase() === fabric && p.image_url);
+        if (pool.length) photo = pool[Math.floor(Math.random() * pool.length)].image_url;
+      }
+      return {
+        photo: photo || '',
+        link: b.button_link || '',
+        imageOnly: !b.heading && !b.eyebrow && !b.subheading,
+        eyebrow: b.eyebrow || '',
+        heading: b.heading || '',
+        subheading: b.subheading || '',
+        buttonText: b.button_text || ''
+      };
+    });
+
+    hero.innerHTML = `
+      <div class="hero-frame hero-loading" id="hero-frame">
+        <img class="hero-photo" id="hero-photo" alt="" fetchpriority="high" decoding="async">
+        <a class="hero-image-link" id="hero-link" href="#" aria-label="Shop" hidden></a>
+        <div class="hero-overlay" id="hero-overlay"></div>
+        <div class="hero-slide-content" id="hero-content"></div>
+      </div>
+      ${HERO.slides.length > 1 ? `<div class="hero-dots" id="hero-dots">${
+        HERO.slides.map((s, i) => `<button class="hero-dot${i === 0 ? ' active' : ''}" data-dot="${i}" aria-label="Banner ${i + 1}"></button>`).join('')
+      }</div>` : ''}`;
+
+    const photo = document.getElementById('hero-photo');
+    photo.addEventListener('load', () => {
+      document.getElementById('hero-frame').classList.remove('hero-loading');
+      photo.classList.add('is-in');
+    });
+    photo.addEventListener('error', () => {
+      document.getElementById('hero-frame').classList.remove('hero-loading');
+    });
+
+    hero.querySelectorAll('.hero-dot').forEach(dot => {
+      dot.addEventListener('click', () => showHeroSlide(Number(dot.dataset.dot), true));
+    });
+
+    showHeroSlide(0, false);
+    startHeroRotation();
   } catch (e) {
-    // Leave hero empty if banners can't load — rest of the page still works
+    // Leave the text fallback in place — the rest of the page still works.
   }
 }
 
-// Banners set to "auto-rotate mobile image from a fabric" don't ship a fixed
-// mobile image — instead we pick a random real product photo from that
-// fabric on every page load and use it as the mobile hero background.
-async function applyFabricRotatedMobileBanners() {
-  const slides = document.querySelectorAll('.hero-slide[data-fabric-source]');
-  if (slides.length === 0) return;
-  // One cached product list, filtered locally — no request per fabric.
-  const all = await getProducts();
-  for (const slide of slides) {
-    const fabric = (slide.dataset.fabricSource || '').toLowerCase();
-    const pool = all.filter(p => (p.fabric || '').toLowerCase() === fabric && p.image_url);
-    if (pool.length === 0) continue;
-    const pick = pool[Math.floor(Math.random() * pool.length)];
-    slide.style.setProperty('--bg-mobile', `url('${pick.image_url}')`);
+function showHeroSlide(i, fromClick) {
+  const s = HERO.slides[i];
+  if (!s) return;
+  HERO.i = i;
+
+  const photo = document.getElementById('hero-photo');
+  const link = document.getElementById('hero-link');
+  const overlay = document.getElementById('hero-overlay');
+  const content = document.getElementById('hero-content');
+  if (!photo) return;
+
+  if (s.photo && photo.getAttribute('src') !== s.photo) {
+    photo.classList.remove('is-in');
+    photo.src = s.photo;
   }
-  fitHeroToImage();
+  photo.style.display = s.photo ? '' : 'none';
+  // A banner with no artwork for this screen still needs a frame to sit in.
+  document.getElementById('hero-frame').classList.toggle('no-photo', !s.photo);
+
+  if (s.imageOnly && s.link) {
+    link.href = s.link;
+    link.removeAttribute('hidden');
+  } else {
+    link.setAttribute('hidden', '');
+  }
+
+  overlay.style.display = (s.photo && !s.imageOnly) ? '' : 'none';
+  content.innerHTML = s.imageOnly ? '' : [
+    s.eyebrow ? '<div class="hero-eyebrow">' + escapeHtml(s.eyebrow) + '</div>' : '',
+    s.heading ? '<h1>' + escapeHtml(s.heading) + '</h1>' : '',
+    s.subheading ? '<p>' + escapeHtml(s.subheading) + '</p>' : '',
+    s.buttonText ? '<a href="' + (s.link || '#') + '" class="btn">' + escapeHtml(s.buttonText) + '</a>' : ''
+  ].join('');
+
+  document.querySelectorAll('.hero-dot').forEach((d, idx) => d.classList.toggle('active', idx === i));
+
+  // Warm the next photo so the swap is instant without downloading all of them.
+  const next = HERO.slides[(i + 1) % HERO.slides.length];
+  if (next && next.photo && next.photo !== s.photo) {
+    const warm = new Image();
+    warm.decoding = 'async';
+    warm.src = next.photo;
+  }
+  if (fromClick) startHeroRotation();
 }
 
-/* The banner frame takes the uploaded photo's own aspect ratio, so the
-   image fills it edge to edge with nothing cropped off the top or bottom,
-   and the frame sits directly under the header bar. Loading the photo
-   here also warms the cache before the CSS background needs it. */
-function fitHeroToImage() {
-  const hero = document.getElementById('hero');
-  if (!hero) return;
-  const slide = hero.querySelector('.hero-slide.active') || hero.querySelector('.hero-slide');
-  if (!slide) return;
-  const mobile = window.matchMedia('(max-width: 720px)').matches;
-  const cs = getComputedStyle(slide);
-  const raw = (mobile ? cs.getPropertyValue('--bg-mobile') : '')
-    || cs.getPropertyValue('--bg-desktop')
-    || cs.getPropertyValue('--bg-mobile');
-  const match = (raw || '').match(/url\(["']?([^"')]+)["']?\)/);
-  if (!match) return;
-  const img = new Image();
-  img.fetchPriority = 'high';
-  img.decoding = 'async';
-  img.onload = () => {
-    if (!img.naturalWidth || !img.naturalHeight) return;
-    const ar = img.naturalWidth / img.naturalHeight;
-    // Desktop: a wide upload keeps its own shape and is shown whole; a
-    // portrait/square upload gets a wide frame and is cropped to fill it,
-    // because a tall photo can't be both complete and edge to edge on a
-    // wide screen. Mobile keeps the photo's own shape either way.
-    const cropOnDesktop = !mobile && ar < 1.25;
-    hero.classList.toggle('hero-crop', cropOnDesktop);
-    if (cropOnDesktop) hero.style.removeProperty('--hero-ar');
-    else hero.style.setProperty('--hero-ar', img.naturalWidth + ' / ' + img.naturalHeight);
-    hero.classList.toggle('hero-wide', mobile && ar > 1.2);
-  };
-  img.src = match[1];
+function startHeroRotation() {
+  clearInterval(HERO.timer);
+  if (HERO.slides.length < 2) return;
+  HERO.timer = setInterval(() => showHeroSlide((HERO.i + 1) % HERO.slides.length, false), 5500);
 }
-let _heroFitTimer;
+
+let _heroResizeTimer;
 window.addEventListener('resize', () => {
-  clearTimeout(_heroFitTimer);
-  _heroFitTimer = setTimeout(() => {
+  clearTimeout(_heroResizeTimer);
+  _heroResizeTimer = setTimeout(() => {
     // Crossing the phone/desktop line swaps which banners apply.
     const nowMobile = window.matchMedia('(max-width: 720px)').matches;
     if (BANNER_SCREEN_WAS_MOBILE !== null && nowMobile !== BANNER_SCREEN_WAS_MOBILE) loadBanners();
-    else fitHeroToImage();
-  }, 200);
+  }, 250);
 }, { passive: true });
 
-function initHeroSlider() {
-  const slides = document.querySelectorAll('.hero-slide');
-  const dots = document.querySelectorAll('.hero-dot');
-  if (slides.length === 0) return;
-  let current = 0;
-  function show(i) {
-    slides.forEach(s => s.classList.remove('active'));
-    dots.forEach(d => d.classList.remove('active'));
-    slides[i].classList.add('active');
-    if (dots[i]) dots[i].classList.add('active');
-    current = i;
-  }
-  dots.forEach(dot => dot.addEventListener('click', () => { show(Number(dot.dataset.dot)); fitHeroToImage(); }));
-  if (slides.length > 1) {
-    setInterval(() => { show((current + 1) % slides.length); fitHeroToImage(); }, 5000);
-  }
-}
+loadBanners();
 
 loadBanners();
 
