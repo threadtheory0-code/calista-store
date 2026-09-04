@@ -40,7 +40,10 @@
 
   <div id="tab-products" style="display:none;">
     <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:20px;">
-      <h3 class="display" style="font-size:17px; margin:0 0 4px;">Step 1 — Bring photos into your own store</h3>
+      <h3 class="display" style="font-size:17px; margin:0 0 4px;">
+        Step 1 — Bring photos into your own store
+        <span style="font-family:var(--font-body,inherit); font-size:11px; font-weight:400; letter-spacing:.06em; text-transform:uppercase; color:var(--charcoal-soft); border:1px solid var(--line); padding:1px 6px; margin-left:6px; vertical-align:middle;">Photo tools v3</span>
+      </h3>
       <p style="font-size:12.5px; color:var(--charcoal-soft); margin:0 0 10px; max-width:640px;">
         Gents photos are being served from GitHub, which tells every browser to throw them
         away after five minutes — so visitors re-download them again and again. Ladies photos
@@ -735,19 +738,51 @@ async function uploadFiles(fileList, preset = 'product') {
   return data.urls;
 }
 
+/* Read the catalogue for the photo tools.
+   Deliberately uncached: the public product list is edge- and browser-cached,
+   and a stale copy silently broke these tools once already — Step 1 read old
+   addresses, moved those photos, then Step 2 read the same old copy and
+   concluded there was nothing in the bucket. The admin list is never edge
+   cached, and no-store plus a cache-buster rules the browser out too. */
+async function readCatalogue() {
+  const res = await fetch('/api/admin/products?fresh=' + Date.now(), { cache: 'no-store' });
+  const raw = await res.text();
+  try { return JSON.parse(raw); }
+  catch (e) { throw new Error(`could not read catalogue (HTTP ${res.status}): ${raw.slice(0, 120)}`); }
+}
+
+// Split a catalogue into photos we host and photos still on someone else's server.
+function splitPhotoHosts(products, includeGallery = true) {
+  const urls = new Set();
+  products.forEach(p => {
+    [p.image_url, p.image_url_2].forEach(u => { if (u) urls.add(u); });
+    if (includeGallery) {
+      try { (JSON.parse(p.images_json || '[]') || []).forEach(u => { if (u) urls.add(u); }); } catch (e) {}
+    }
+  });
+  const all = [...urls].filter(u => typeof u === 'string' && u);
+  const outside = all.filter(u => u.indexOf('http') === 0);
+  const hosts = {};
+  outside.forEach(u => { try { hosts[new URL(u).hostname] = (hosts[new URL(u).hostname] || 0) + 1; } catch (e) {} });
+  return { ours: all.filter(u => u.indexOf('/uploads/') === 0), outside, hosts };
+}
+
 /* Retro-fit: build the missing grid copies for photos already in the store.
    Runs in the browser — each photo is downloaded once, resized, and the
    small copy uploaded beside it. Nothing in the database changes. */
 async function buildMissingThumbnails(statusEl) {
   const say = (t) => { if (statusEl) statusEl.textContent = t; };
   say('Reading catalogue…');
-  const products = await fetch('/api/admin/products').then(r => r.json());
-  const urls = new Set();
-  products.forEach(p => {
-    [p.image_url, p.image_url_2].forEach(u => { if (u) urls.add(u); });
-    try { (JSON.parse(p.images_json || '[]') || []).forEach(u => { if (u) urls.add(u); }); } catch (e) {}
-  });
-  const list = [...urls].filter(u => u.indexOf('/uploads/') === 0);
+  const products = await readCatalogue();
+  const { ours, outside, hosts } = splitPhotoHosts(products);
+  const list = ours;
+
+  if (!list.length) {
+    const where = Object.entries(hosts).map(([h, n]) => `${n} on ${h}`).join(', ');
+    say(`Nothing to build — ${products.length} products read, none of their photos are in your own store yet`
+      + (outside.length ? ` (${where}). Run Step 1 first.` : '.'));
+    return;
+  }
   let built = 0, skipped = 0, failed = 0, done = 0;
 
   for (const u of list) {
@@ -766,7 +801,8 @@ async function buildMissingThumbnails(statusEl) {
       failed++;
     }
   }
-  say(`Done — ${built} built, ${skipped} already fine${failed ? `, ${failed} failed` : ''}. ${list.length ? 'Grids load from the small copies from now on.' : `No photos in your own store yet — ${products.length} products read. Run Step 1 first.`}`);
+  say(`Done — ${built} built, ${skipped} already fine${failed ? `, ${failed} failed` : ''}`
+    + `${outside.length ? `. ${outside.length} photos are still on an outside server — re-run Step 1.` : '. Grids load from the small copies from now on.'}`);
 }
 
 document.getElementById('build-thumbs-btn')?.addEventListener('click', async (e) => {
@@ -785,22 +821,16 @@ document.getElementById('build-thumbs-btn')?.addEventListener('click', async (e)
 async function importOutsidePhotos(statusEl, includeGallery) {
   const say = (t) => { if (statusEl) statusEl.textContent = t; };
   say('Reading catalogue…');
-  const products = await fetch('/api/admin/products').then(r => r.json());
-
-  const urls = new Set();
-  products.forEach(p => {
-    [p.image_url, p.image_url_2].forEach(u => { if (u) urls.add(u); });
-    if (includeGallery) {
-      try { (JSON.parse(p.images_json || '[]') || []).forEach(u => { if (u) urls.add(u); }); } catch (e) {}
-    }
-  });
-  const list = [...urls].filter(u => typeof u === 'string' && u.indexOf('http') === 0);
+  const products = await readCatalogue();
+  const { ours, outside, hosts } = splitPhotoHosts(products, includeGallery);
+  const list = outside;
 
   if (!list.length) {
-    say(`Nothing to move — ${products.length} products read, none with an outside photo address.`);
+    say(`Nothing to move — ${products.length} products read, all ${ours.length} photos are already in your own store. Go to Step 2.`);
     return;
   }
-  say(`Found ${list.length} outside photos across ${products.length} products…`);
+  const where = Object.entries(hosts).map(([h, n]) => `${n} on ${h}`).join(', ');
+  say(`Found ${list.length} outside photos across ${products.length} products (${where})…`);
 
   let moved = 0, failed = 0, repointed = 0;
   const notes = [];
