@@ -439,42 +439,58 @@ export default {
         const { urls } = await request.json();
         if (!Array.isArray(urls) || !urls.length) return json({ error: 'No urls given' }, 400);
 
-        const map = {}, failed = [];
+        const map = {}, problems = [];
         for (const src of urls.slice(0, 6)) {
-          if (typeof src !== 'string' || src.indexOf('http') !== 0) { failed.push(src); continue; }
+          if (typeof src !== 'string' || src.indexOf('http') !== 0) {
+            problems.push(String(src).slice(0, 50) + ' → not an http url');
+            continue;
+          }
           try {
             // Fetch through jsDelivr for GitHub-hosted files: same bytes, far faster.
-            const res = await fetch(cdnRewriteServer(src), { cf: { cacheTtl: 300 } });
-            if (!res.ok) { failed.push(src); continue; }
+            const res = await fetch(cdnRewriteServer(src));
+            if (!res.ok) { problems.push(src.slice(0, 50) + ' → HTTP ' + res.status); continue; }
             const buf = await res.arrayBuffer();
-            if (!buf.byteLength) { failed.push(src); continue; }
+            if (!buf.byteLength) { problems.push(src.slice(0, 50) + ' → empty file'); continue; }
 
             const type = res.headers.get('content-type') || 'image/jpeg';
-            const ext = (type.match(/image\/(jpeg|jpg|png|webp|gif|avif)/i)?.[1] || 'jpg')
-              .toLowerCase().replace('jpeg', 'jpg');
+            const m = type.match(/image\/(jpeg|jpg|png|webp|gif|avif)/i);
+            const ext = (m ? m[1] : 'jpg').toLowerCase().replace('jpeg', 'jpg');
             const key = `uploads/imp-${hashUrl(src)}.${ext}`;
 
             await env.IMAGES.put(key, buf, { httpMetadata: { contentType: type } });
             map[src] = '/' + key;
-          } catch (e) { failed.push(src); }
+          } catch (e) {
+            problems.push(src.slice(0, 50) + ' → ' + e.message);
+          }
         }
 
-        // Point the catalogue at the new copies. REPLACE is a no-op on rows
-        // that don't contain the old URL, so this is safe to run broadly.
-        const stmts = [];
+        /* Point the catalogue at the new copies. Done one URL at a time and
+           column by column, because a single unusable column (images_json is
+           not present on every install) must not throw away the whole batch
+           after the photos are already stored. */
+        let repointed = 0;
+        const dbProblems = [];
         for (const [src, dest] of Object.entries(map)) {
-          stmts.push(env.DB.prepare(
-            `UPDATE products SET
-               image_url   = REPLACE(image_url, ?, ?),
-               image_url_2 = REPLACE(image_url_2, ?, ?),
-               images_json = REPLACE(images_json, ?, ?)
-             WHERE image_url LIKE ? OR image_url_2 LIKE ? OR images_json LIKE ?`
-          ).bind(src, dest, src, dest, src, dest, '%' + src + '%', '%' + src + '%', '%' + src + '%'));
+          for (const col of ['image_url', 'image_url_2', 'images_json']) {
+            try {
+              const r = await env.DB.prepare(
+                `UPDATE products SET ${col} = REPLACE(${col}, ?, ?) WHERE ${col} LIKE ?`
+              ).bind(src, dest, '%' + src + '%').run();
+              repointed += (r.meta && r.meta.changes) || 0;
+            } catch (e) {
+              if (dbProblems.length < 3) dbProblems.push(col + ' → ' + e.message);
+            }
+          }
         }
-        if (stmts.length) await env.DB.batch(stmts);
 
         ctx.waitUntil(purgeApiCache(url.origin));
-        return json({ imported: Object.keys(map).length, failed: failed.length, map });
+        return json({
+          imported: Object.keys(map).length,
+          failed: problems.length,
+          repointed,
+          problems: problems.slice(0, 3),
+          dbProblems
+        });
       } catch (err) {
         return json({ error: err.message }, 500);
       }
