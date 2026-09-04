@@ -219,6 +219,7 @@ async function notifyNewOrder(order, env) {
 
 // Read-only endpoints safe to serve from the edge for a short window.
 const CACHEABLE_API = [
+  '/api/bootstrap',
   '/api/products', '/api/banners', '/api/fabric-categories',
   '/api/settings', '/api/nav-tabs', '/api/tiktok-pixel-id',
   '/api/reviews-summary'
@@ -1182,6 +1183,43 @@ export default {
       }
     }
 
+    /* ONE request, ONE D1 batch, everything the storefront needs to paint.
+       The pages used to fire seven separate requests (products, banners,
+       fabrics, settings, nav tabs, review totals, pixel id) and each one was
+       its own Worker invocation and its own database round trip. That is what
+       made browsing feel slow, and it is why the site felt slower the more
+       stock was added. Now it is one call. */
+    if (path === '/api/bootstrap' && method === 'GET') {
+      try {
+        await ensureSchema(env);
+        const rs = await env.DB.batch([
+          env.DB.prepare('SELECT * FROM products WHERE is_active = 1 ORDER BY sort_order ASC, id DESC'),
+          env.DB.prepare('SELECT * FROM banners WHERE is_active = 1 ORDER BY sort_order ASC'),
+          env.DB.prepare('SELECT * FROM fabric_categories ORDER BY sort_order ASC'),
+          env.DB.prepare('SELECT key, value FROM site_settings'),
+          env.DB.prepare("SELECT * FROM nav_tabs WHERE is_active = 1 ORDER BY gender ASC, sort_order ASC"),
+          env.DB.prepare('SELECT product_id, COUNT(*) AS count, AVG(rating) AS average FROM reviews WHERE is_approved = 1 AND product_id IS NOT NULL GROUP BY product_id')
+        ]);
+        const settings = {};
+        (rs[3].results || []).forEach(r => { settings[r.key] = r.value; });
+        const reviews = {};
+        (rs[5].results || []).forEach(r => {
+          reviews[r.product_id] = { count: r.count, average: Math.round(r.average * 10) / 10 };
+        });
+        return json({
+          products: rs[0].results || [],
+          banners: rs[1].results || [],
+          fabrics: rs[2].results || [],
+          settings,
+          navTabs: rs[4].results || [],
+          reviews,
+          pixel: settings.tiktok_pixel_id || null
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     if (path === '/api/products' && method === 'GET') {
       try {
         await ensureSchema(env);
@@ -1397,15 +1435,52 @@ export default {
           "SELECT id FROM orders WHERE phone = ? AND created_at > datetime('now', '-10 minutes') ORDER BY id DESC LIMIT 1"
         ).bind(cleanPhone).first();
 
-        // Always recompute the total server-side — never trust a client-sent total
-        let subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
+        /* Prices come from the database, never from the browser.
+           The cart lives in localStorage, so a client-sent price is only ever
+           a suggestion — anyone can edit it. Every line is re-priced here from
+           the products table, and an item that has been deactivated or gone
+           out of stock stops the order instead of being booked. */
+        const wanted = [];
+        const ids = [];
+        for (const i of items) {
+          const pid = parseInt(i.product_id, 10);
+          if (!pid) return json({ error: 'Your bag is out of date — please reload the page and try again.' }, 400);
+          if (ids.indexOf(pid) === -1) ids.push(pid);
+          wanted.push({ pid, size: i.size || null, qty: Math.max(1, Math.min(20, parseInt(i.qty, 10) || 1)) });
+        }
+        const { results: rows } = await env.DB.prepare(
+          `SELECT id, name, price, sale_price, stock, is_active FROM products WHERE id IN (${ids.map(() => '?').join(',')})`
+        ).bind(...ids).all();
+        const byId = {};
+        (rows || []).forEach(r => { byId[r.id] = r; });
+
+        const priced = [];
+        for (const w of wanted) {
+          const p = byId[w.pid];
+          if (!p || !p.is_active) {
+            return json({ error: 'One of the items in your bag is no longer available. Please remove it and try again.' }, 400);
+          }
+          const inStock = (p.stock === null || p.stock === undefined) ? Infinity : Number(p.stock);
+          if (inStock < w.qty) {
+            return json({
+              error: inStock <= 0
+                ? `${p.name} has just sold out. Please remove it from your bag.`
+                : `Only ${inStock} left of ${p.name}. Please lower the quantity.`
+            }, 400);
+          }
+          const unit = (p.sale_price !== null && p.sale_price !== undefined && Number(p.sale_price) > 0)
+            ? Number(p.sale_price) : Number(p.price);
+          priced.push({ product_id: p.id, name: p.name, size: w.size, qty: w.qty, price: unit });
+        }
+
+        let subtotal = priced.reduce((sum, i) => sum + i.price * i.qty, 0);
         let discountAmount = 0;
         let appliedCode = null;
 
         if (discount_code) {
           const discount = await env.DB.prepare('SELECT * FROM discounts WHERE code = ? AND is_active = 1').bind(discount_code.trim().toUpperCase()).first();
           if (discount) {
-            const result = calculateDiscount(discount, items);
+            const result = calculateDiscount(discount, priced);
             if (!result.error) {
               discountAmount = result.amount;
               appliedCode = discount.code;
@@ -1418,7 +1493,7 @@ export default {
 
         if (dupe) {
           const prev = await env.DB.prepare('SELECT total, items_json FROM orders WHERE id = ?').bind(dupe.id).first();
-          if (prev && prev.total === total && prev.items_json === JSON.stringify(items)) {
+          if (prev && prev.total === total && prev.items_json === JSON.stringify(priced)) {
             return json({ success: true, total, discount_amount: discountAmount, duplicate: true });
           }
         }
@@ -1435,9 +1510,15 @@ export default {
         await env.DB.prepare(
           `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status, risk_note)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
-        ).bind(customer_name, cleanPhone, address, city, JSON.stringify(items), total, appliedCode, discountAmount, riskNote).run();
+        ).bind(customer_name, cleanPhone, address, city, JSON.stringify(priced), total, appliedCode, discountAmount, riskNote).run();
 
-        ctx.waitUntil(notifyNewOrder({ customer_name, phone: cleanPhone, address, city, items, total, risk_note: riskNote }, env));
+        // Stock comes down as orders come in, so "only N left" stays true and
+        // two people can't be sold the last piece.
+        ctx.waitUntil(env.DB.batch(priced.map(i =>
+          env.DB.prepare('UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ? AND stock IS NOT NULL').bind(i.qty, i.product_id)
+        )).then(() => purgeApiCache(url.origin)).catch(() => {}));
+
+        ctx.waitUntil(notifyNewOrder({ customer_name, phone: cleanPhone, address, city, items: priced, total, risk_note: riskNote }, env));
 
         return json({ success: true, total, discount_amount: discountAmount });
       } catch (err) {
