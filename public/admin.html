@@ -751,20 +751,27 @@ async function readCatalogue() {
   catch (e) { throw new Error(`could not read catalogue (HTTP ${res.status}): ${raw.slice(0, 120)}`); }
 }
 
-// Split a catalogue into photos we host and photos still on someone else's server.
+/* Split a catalogue into photos we host and photos still on someone else's
+   server. Grid photos (image_url / image_url_2) and gallery-only photos
+   (images_json) are counted separately: only the grid ones affect how fast a
+   collection page loads, and Step 1 leaves the gallery alone unless the box
+   is ticked — so a leftover gallery count is not a failure and must not be
+   reported as one. */
 function splitPhotoHosts(products, includeGallery = true) {
-  const urls = new Set();
+  const main = new Set(), gallery = new Set();
   products.forEach(p => {
-    [p.image_url, p.image_url_2].forEach(u => { if (u) urls.add(u); });
-    if (includeGallery) {
-      try { (JSON.parse(p.images_json || '[]') || []).forEach(u => { if (u) urls.add(u); }); } catch (e) {}
-    }
+    [p.image_url, p.image_url_2].forEach(u => { if (u) main.add(u); });
+    try { (JSON.parse(p.images_json || '[]') || []).forEach(u => { if (u && !main.has(u)) gallery.add(u); }); } catch (e) {}
   });
-  const all = [...urls].filter(u => typeof u === 'string' && u);
-  const outside = all.filter(u => u.indexOf('http') === 0);
+  const str = (s) => [...s].filter(u => typeof u === 'string' && u);
+  const ext = (l) => l.filter(u => u.indexOf('http') === 0);
+  const outsideMain = ext(str(main));
+  const outsideGallery = ext(str(gallery));
+  const all = str(main).concat(includeGallery ? str(gallery) : []);
+  const outside = includeGallery ? outsideMain.concat(outsideGallery) : outsideMain;
   const hosts = {};
   outside.forEach(u => { try { hosts[new URL(u).hostname] = (hosts[new URL(u).hostname] || 0) + 1; } catch (e) {} });
-  return { ours: all.filter(u => u.indexOf('/uploads/') === 0), outside, hosts };
+  return { ours: all.filter(u => u.indexOf('/uploads/') === 0), outside, outsideMain, outsideGallery, hosts };
 }
 
 /* Retro-fit: build the missing grid copies for photos already in the store.
@@ -774,7 +781,7 @@ async function buildMissingThumbnails(statusEl) {
   const say = (t) => { if (statusEl) statusEl.textContent = t; };
   say('Reading catalogue…');
   const products = await readCatalogue();
-  const { ours, outside, hosts } = splitPhotoHosts(products);
+  const { ours, outside, outsideMain, outsideGallery, hosts } = splitPhotoHosts(products);
   const list = ours;
 
   if (!list.length) {
@@ -801,8 +808,16 @@ async function buildMissingThumbnails(statusEl) {
       failed++;
     }
   }
-  say(`Done — ${built} built, ${skipped} already fine${failed ? `, ${failed} failed` : ''}`
-    + `${outside.length ? `. ${outside.length} photos are still on an outside server — re-run Step 1.` : '. Grids load from the small copies from now on.'}`);
+  /* Grid photos left outside are a real problem; gallery-only ones are just
+     the un-ticked option and are never shown in a grid. */
+  let tail = '. Grids load from the small copies from now on.';
+  if (outsideMain.length) {
+    tail = `. ${outsideMain.length} grid photos are still on an outside server — re-run Step 1.`;
+  } else if (outsideGallery.length) {
+    tail = `. Grids are fully covered. ${outsideGallery.length} extra gallery photos (product-page only) are still on an outside server`
+      + ` — tick "Include the extra gallery photos" in Step 1 and run it again if you want those moved too.`;
+  }
+  say(`Done — ${built} built, ${skipped} already fine${failed ? `, ${failed} failed` : ''}` + tail);
 }
 
 document.getElementById('build-thumbs-btn')?.addEventListener('click', async (e) => {
