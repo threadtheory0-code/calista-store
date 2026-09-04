@@ -113,6 +113,21 @@ function money(n) {
   return 'Rs. ' + Number(n).toLocaleString('en-PK');
 }
 
+/* ============================================================
+   GRID THUMBNAILS
+   A product card is ~180px wide on a phone, so downloading the
+   1400px master for every card is pure waste — that is what made
+   the catalogue feel slow once the gents photos went up. Uploads
+   now also write a 600px "<name>.thumb.<ext>" variant beside the
+   master, and the Worker serves the master when a thumbnail does
+   not exist yet, so this is safe on every existing photo too.
+   ============================================================ */
+function thumbUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  if (url.indexOf('/uploads/') !== 0) return url;
+  return url.replace(/(\.[a-z0-9]{2,5})$/i, '.thumb$1');
+}
+
 function ttEvent(name, params) {
   if (window.ttq) {
     try { ttq.track(name, params); } catch (e) {}
@@ -390,7 +405,7 @@ function renderCartDrawer() {
 
   body.innerHTML = shippingHtml + cart.map((item, i) => `
     <div class="cart-drawer-item">
-      <img src="${item.image_url}" alt="${item.name}">
+      <img src="${thumbUrl(item.image_url)}" alt="${item.name}" loading="lazy" decoding="async">
       <div>
         <div class="name">${item.name}</div>
         <div class="price">${money(item.price)}</div>
@@ -635,7 +650,7 @@ async function runSearch(q) {
   }
   results.innerHTML = matches.map(p => `
     <a class="search-result-card" href="/product.html?slug=${p.slug}">
-      <img src="${p.image_url}" alt="${p.name}" loading="lazy">
+      <img src="${thumbUrl(p.image_url)}" alt="${p.name}" loading="lazy" decoding="async">
       <div class="search-result-name">${p.name}</div>
     </a>
   `).join('');
@@ -728,4 +743,164 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(window.__toastTimer);
   window.__toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+
+/* ============================================================
+   Conversion layer — reviews, honest stock notes, trust panel,
+   bag reminder. Everything here is driven by real data or by
+   copy the owner types into Admin → Settings; nothing invents
+   scarcity or social proof.
+   ============================================================ */
+
+const TRUST_DEFAULT = [
+  'Cash on Delivery|Pay the courier when your parcel arrives',
+  'Tracked Delivery|Booked with PostEx — tracking sent on WhatsApp',
+  'WhatsApp Support|Message us any time before or after ordering'
+].join('\n');
+
+async function convSettings() {
+  const s = await getSettings();
+  return {
+    lowStock: Math.max(0, parseInt(s.low_stock_threshold, 10) || 3),
+    // Absent key = never configured, so show the defaults. An explicitly
+    // saved empty box means "no badges" and is respected.
+    trust: (s.trust_badges === undefined || s.trust_badges === null) ? TRUST_DEFAULT : s.trust_badges,
+    reviewsOn: s.reviews_enabled !== '0',
+    bagReminder: s.bag_reminder !== '0',
+    codNote: s.cod_confirm_note || "We'll confirm your order on WhatsApp or by phone before dispatch.",
+    exchangeNote: s.exchange_note || ''
+  };
+}
+
+let _reviewSummary = null;
+async function getReviewsSummary() {
+  if (_reviewSummary) return _reviewSummary;
+  try {
+    _reviewSummary = await apiCached('/api/reviews-summary');
+  } catch (e) {
+    _reviewSummary = {};
+  }
+  return _reviewSummary || {};
+}
+
+// Five glyphs, filled to the nearest half. No rating, no stars — we never
+// render an empty five-star row, which reads as a zero score.
+function starsHtml(average, count, size, hideCount) {
+  if (!count) return '';
+  const pct = Math.max(0, Math.min(100, (average / 5) * 100));
+  return '<span class="stars" style="--fill:' + pct + '%;' + (size ? 'font-size:' + size + 'px;' : '') + '" ' +
+    'aria-label="' + average + ' out of 5' + (hideCount ? '' : ' from ' + count + ' review' + (count === 1 ? '' : 's')) + '">' +
+    '<span class="stars-base">★★★★★</span><span class="stars-fill">★★★★★</span></span>' +
+    (hideCount ? '' : '<span class="stars-count">' + average.toFixed(1) + ' (' + count + ')</span>');
+}
+
+// Only ever states the number actually in the database.
+function stockNoteHtml(product, threshold) {
+  const n = Number(product.stock);
+  if (!Number.isFinite(n)) return '';
+  if (n <= 0) return '<p class="stock-note out">Sold out — message us to be told when it is back</p>';
+  if (n <= threshold) return '<p class="stock-note low">Only ' + n + ' left in stock</p>';
+  return '';
+}
+
+function trustPanelHtml(raw) {
+  const rows = String(raw || '').split('\n').map(l => l.trim()).filter(Boolean);
+  if (!rows.length) return '';
+  return '<ul class="trust-panel">' + rows.map(line => {
+    const parts = line.split('|');
+    const title = escapeHtml((parts[0] || '').trim());
+    const sub = escapeHtml((parts[1] || '').trim());
+    return '<li><span class="trust-panel-title">' + title + '</span>' +
+      (sub ? '<span class="trust-panel-sub">' + sub + '</span>' : '') + '</li>';
+  }).join('') + '</ul>';
+}
+
+async function renderTrustPanel(target) {
+  const el = typeof target === 'string' ? document.getElementById(target) : target;
+  if (!el) return;
+  const s = await convSettings();
+  el.innerHTML = trustPanelHtml(s.trust);
+}
+
+/* Reviews block for the product page. Renders nothing at all when the
+   product has no approved reviews — an empty "0 reviews" panel costs
+   more trust than it earns. */
+async function renderProductReviews(productId, mountId) {
+  const mount = document.getElementById(mountId);
+  if (!mount) return;
+  const s = await convSettings();
+  if (!s.reviewsOn) return;
+  let data;
+  try {
+    const res = await fetch('/api/reviews?product_id=' + encodeURIComponent(productId));
+    data = await res.json();
+  } catch (e) { return; }
+  if (!data || !data.count) return;
+
+  mount.innerHTML =
+    '<div class="reviews-head">' +
+      '<h2 class="display reviews-title">Customer Reviews</h2>' +
+      '<div class="reviews-score">' + starsHtml(data.average, data.count, 18) + '</div>' +
+    '</div>' +
+    '<div class="reviews-list">' + data.reviews.map(r =>
+      '<article class="review-card">' +
+        starsHtml(r.rating, 1, 13, true) +
+        (r.body ? '<p class="review-body">' + escapeHtml(r.body) + '</p>' : '') +
+        '<p class="review-meta">' + escapeHtml(r.customer_name) +
+          (r.city ? ' — ' + escapeHtml(r.city) : '') + '</p>' +
+      '</article>'
+    ).join('') + '</div>' +
+    '<p class="reviews-note">Shared with the customer\u2019s permission.</p>';
+}
+
+/* A quiet reminder that there is something in the bag — kept entirely in
+   the browser, so it needs no email address and no consent. */
+async function initBagReminder() {
+  if (document.getElementById('bag-reminder')) return;
+  if (/cart|checkout|admin/.test(location.pathname)) return;
+  const cart = getCart();
+  if (!cart.length) return;
+  if (sessionStorage.getItem('cs_bag_reminder_seen')) return;
+  const s = await convSettings();
+  if (!s.bagReminder) return;
+
+  const count = cart.reduce((n, i) => n + i.qty, 0);
+  const bar = document.createElement('div');
+  bar.id = 'bag-reminder';
+  bar.className = 'bag-reminder';
+  bar.innerHTML =
+    '<span>' + count + (count === 1 ? ' item is' : ' items are') + ' still in your bag' +
+      ' <b>' + money(cartTotal(cart)) + '</b></span>' +
+    '<button type="button" class="bag-reminder-go">Resume</button>' +
+    '<button type="button" class="bag-reminder-x" aria-label="Dismiss">&times;</button>';
+  document.body.appendChild(bar);
+  requestAnimationFrame(() => bar.classList.add('show'));
+  const dismiss = () => {
+    sessionStorage.setItem('cs_bag_reminder_seen', '1');
+    bar.classList.remove('show');
+    setTimeout(() => bar.remove(), 300);
+  };
+  bar.querySelector('.bag-reminder-x').addEventListener('click', dismiss);
+  bar.querySelector('.bag-reminder-go').addEventListener('click', () => {
+    sessionStorage.setItem('cs_bag_reminder_seen', '1');
+    openCartDrawer();
+    bar.classList.remove('show');
+    setTimeout(() => bar.remove(), 300);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(initBagReminder, 1200);
+});
+
+// Fills every <div data-stars="PRODUCT_ID"> in a freshly rendered grid.
+async function hydrateCardStars(root) {
+  const nodes = (root || document).querySelectorAll('[data-stars]');
+  if (!nodes.length) return;
+  const map = await getReviewsSummary();
+  nodes.forEach(n => {
+    const r = map[n.getAttribute('data-stars')];
+    if (r && r.count) n.innerHTML = starsHtml(r.average, r.count, 12);
+  });
 }

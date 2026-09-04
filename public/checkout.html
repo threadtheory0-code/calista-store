@@ -9,7 +9,9 @@
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"></noscript>
 <link rel="stylesheet" href="/styles.css">
 <script>
 !function (w, d, t) {
@@ -35,7 +37,7 @@
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
     </div>
-    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" src="" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
+    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
     <div class="header-icons">
       <button class="header-icon-btn" id="header-search-btn" aria-label="Search">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -103,6 +105,7 @@ function render() {
   }
 
   root.innerHTML = renderSummary() + `
+    <div id="cod-note-mount"></div>
     <form class="checkout-form" id="checkout-form">
       <div>
         <label>Full Name</label>
@@ -110,11 +113,13 @@ function render() {
       </div>
       <div>
         <label>Phone Number</label>
-        <input type="tel" name="phone" placeholder="03xx-xxxxxxx" required>
+        <input type="tel" name="phone" placeholder="0300 1234567" inputmode="numeric" autocomplete="tel" required>
+        <div class="field-error" id="phone-error" style="display:none;">Enter an 11-digit mobile number starting 03 — the courier calls before delivery.</div>
       </div>
       <div>
         <label>Delivery Address</label>
-        <textarea name="address" rows="3" required></textarea>
+        <textarea name="address" rows="3" placeholder="House / street, area, nearest landmark" required></textarea>
+        <div class="field-error" id="address-error" style="display:none;">Please add a bit more detail so the courier can find you.</div>
       </div>
       <div>
         <label>City</label>
@@ -131,19 +136,50 @@ function render() {
     currency: 'PKR'
   });
 
+  // Says plainly what happens after the order is placed — the single
+  // biggest cash-on-delivery worry. Copy comes from Admin → Settings.
+  convSettings().then(s => {
+    const mount = document.getElementById('cod-note-mount');
+    if (mount) {
+      mount.innerHTML = '<p class="cod-note">' + escapeHtml(s.codNote) +
+        (s.exchangeNote ? ' ' + escapeHtml(s.exchangeNote) : '') + '</p>';
+    }
+  });
+
+  // Same rule the Worker enforces, run early so a typo is caught here.
+  function cleanPhone(v) {
+    let d = String(v || '').replace(/[^0-9]/g, '');
+    if (d.indexOf('0092') === 0) d = d.slice(4);
+    else if (d.indexOf('92') === 0) d = d.slice(2);
+    if (d.indexOf('3') === 0) d = '0' + d;
+    return /^03[0-9]{9}$/.test(d) ? d : null;
+  }
+
   document.getElementById('checkout-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
     const btn = document.getElementById('submit-btn');
     const msg = document.getElementById('checkout-msg');
+
+    const phoneError = document.getElementById('phone-error');
+    const addressError = document.getElementById('address-error');
+    const phone = cleanPhone(form.phone.value);
+    const address = form.address.value.trim();
+    phoneError.style.display = phone ? 'none' : '';
+    addressError.style.display = address.length >= 10 ? 'none' : '';
+    if (!phone || address.length < 10) {
+      (phone ? form.address : form.phone).focus();
+      return;
+    }
+
     btn.disabled = true;
     btn.textContent = 'Placing order...';
 
     const discount = JSON.parse(localStorage.getItem('kapra_discount') || 'null');
     const payload = {
       customer_name: form.customer_name.value,
-      phone: form.phone.value,
-      address: form.address.value,
+      phone: phone,
+      address: address,
       city: form.city.value,
       items: cart,
       discount_code: discount ? discount.code : null
@@ -155,7 +191,11 @@ function render() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error('Order failed');
+      if (!res.ok) {
+        let serverMsg = '';
+        try { serverMsg = (await res.json()).error || ''; } catch (e) {}
+        throw new Error(serverMsg || 'Order failed');
+      }
       const orderResult = await res.json();
       ttEvent('CompletePayment', {
         contents: cart.map(i => ({ content_id: String(i.product_id), content_type: 'product', content_name: i.name, price: i.price, quantity: i.qty })),
@@ -171,7 +211,9 @@ function render() {
       </div>`;
       updateCartBadge();
     } catch (err) {
-      msg.textContent = 'Something went wrong — the order API may not be connected yet. See setup instructions.';
+      msg.textContent = err.message && err.message !== 'Order failed'
+        ? err.message
+        : 'Something went wrong — please try again, or message us on WhatsApp and we will place the order for you.';
       msg.style.color = 'var(--maghi-red)';
       btn.disabled = false;
       btn.textContent = 'Place Order — Cash on Delivery';

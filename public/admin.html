@@ -25,6 +25,7 @@
     <button class="admin-tab" data-tab="products">Products</button>
     <button class="admin-tab" data-tab="banners">Banners</button>
     <button class="admin-tab" data-tab="subscribers">Subscribers</button>
+    <button class="admin-tab" data-tab="reviews">Reviews</button>
     <button class="admin-tab" data-tab="site">Site</button>
     <button class="admin-tab" data-tab="fabrics">Fabrics</button>
     <button class="admin-tab" data-tab="menu">Menu</button>
@@ -38,6 +39,18 @@
   </div>
 
   <div id="tab-products" style="display:none;">
+    <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:20px;">
+      <h3 class="display" style="font-size:17px; margin:0 0 4px;">Browsing speed — photo tune-up</h3>
+      <p style="font-size:12.5px; color:var(--charcoal-soft); margin:0 0 10px; max-width:640px;">
+        Product grids show cards about 180px wide, so they now load a small copy of each
+        photo instead of the full-size one. New uploads build that copy automatically.
+        Photos already in the store need it built once — press this and leave the tab open.
+        Safe to run any time; photos that already have a small copy are skipped.
+      </p>
+      <button type="button" class="btn" id="build-thumbs-btn">Build small copies for existing photos</button>
+      <div id="build-thumbs-status" style="font-size:12.5px; margin-top:8px; color:var(--ink-green);"></div>
+    </div>
+
     <h3 class="display" style="font-size:20px; margin-bottom:4px;" id="product-form-title">Add a Product</h3>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:14px;">
       Fill this in and press <b>Add Product</b> — it goes live immediately, and lands in "Shop by Fabric"
@@ -127,6 +140,19 @@
         <div class="image-preview-row" id="banner-image-preview"></div>
       </div>
       <div class="full">
+        <label>Show This Banner To</label>
+        <select id="banner-device-select">
+          <option value="both">Everyone — desktop and mobile</option>
+          <option value="desktop">Desktop / laptop visitors only</option>
+          <option value="mobile">Mobile visitors only</option>
+        </select>
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">
+          Use <b>Everyone</b> and upload both images below for one banner that adapts.
+          Use <b>Desktop only</b> / <b>Mobile only</b> when you want two completely
+          different banners — different artwork, heading and link per device.
+        </p>
+      </div>
+      <div class="full">
         <label>Banner Image — Mobile (optional — used on phones instead of the desktop image above)</label>
         <p style="font-size:11.5px; color:var(--charcoal-soft); margin:0 0 6px;">A portrait crop (about 4:5) fills a phone screen best. It's shown complete, never cropped or stretched.</p>
         <input type="file" id="banner-image-mobile-input" accept="image/*">
@@ -153,7 +179,110 @@
     <div id="subscribers-root">Loading subscribers…</div>
   </div>
 
+  <div id="tab-reviews" style="display:none;">
+    <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:24px;">
+      <h3 class="display" style="font-size:17px; margin:0 0 6px;">Before you publish a review</h3>
+      <p style="font-size:13px; color:var(--charcoal-soft); margin:0; line-height:1.55;">
+        Only type in what a real customer actually sent you, and only tick
+        <b>Customer agreed to have this published</b> once they have said yes —
+        a WhatsApp “yes, you can share it” is enough, and worth keeping a
+        screenshot of. A review will not go live without that tick. Use a first
+        name (or first name + initial) rather than a full name.
+      </p>
+    </div>
+
+    <h3 class="display" style="font-size:20px; margin-bottom:14px;" id="review-form-title">Add Review</h3>
+    <form class="admin-form" id="review-form">
+      <input type="hidden" name="id">
+      <div><label>Customer Name (as shown on the site)</label><input name="customer_name" required placeholder="Ayesha K."></div>
+      <div><label>City (optional)</label><input name="city" placeholder="Lahore"></div>
+      <div>
+        <label>Rating</label>
+        <select name="rating">
+          <option value="5">5 — excellent</option>
+          <option value="4">4 — good</option>
+          <option value="3">3 — okay</option>
+          <option value="2">2 — poor</option>
+          <option value="1">1 — bad</option>
+        </select>
+      </div>
+      <div>
+        <label>Product</label>
+        <select name="product_id" id="review-product-select"><option value="">General — store-wide review</option></select>
+      </div>
+      <div class="full"><label>What the customer said</label><textarea name="body" rows="3" placeholder="Fabric quality was better than I expected and delivery took two days."></textarea></div>
+      <div class="full">
+        <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
+          <input type="checkbox" name="consent" style="width:auto; margin-top:3px;">
+          <span>Customer agreed to have this published</span>
+        </label>
+      </div>
+      <div class="full">
+        <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
+          <input type="checkbox" name="is_approved" style="width:auto; margin-top:3px;">
+          <span>Show on the site now</span>
+        </label>
+      </div>
+      <button type="submit" class="btn">Save Review</button>
+      <button type="button" class="admin-delete-btn full" id="review-cancel-edit" style="display:none;">Cancel edit</button>
+      <div id="review-form-msg" class="full" style="font-size:13px;"></div>
+    </form>
+
+    <h3 class="display" style="font-size:20px; margin-bottom:14px;">All Reviews</h3>
+    <div id="reviews-admin-root">Loading reviews…</div>
+  </div>
+
   <div id="tab-site" style="display:none;">
+    <div style="border:1px solid var(--line); padding:16px 18px; margin-bottom:28px;">
+      <h3 class="display" style="font-size:18px; margin:0 0 4px;">Trust &amp; conversion</h3>
+      <p style="font-size:13px; color:var(--charcoal-soft); margin:0 0 16px; line-height:1.55;">
+        These control the reassurance a shopper sees. Everything here is a claim
+        <b>you</b> are making, so only promise what you will actually honour —
+        the low-stock note is the one exception: it can only ever print the real
+        stock number from the Products tab.
+      </p>
+      <form class="admin-form" id="trust-form">
+        <div>
+          <label>Show “Only N left” when stock drops to</label>
+          <input name="low_stock_threshold" type="number" min="0" max="20" value="3">
+          <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Set to 0 to never show a stock note. Sold-out items are always marked.</p>
+        </div>
+        <div>
+          <label>Reviews on the site</label>
+          <select name="reviews_enabled">
+            <option value="1">Show approved reviews</option>
+            <option value="0">Hide all reviews</option>
+          </select>
+        </div>
+        <div class="full">
+          <label>Trust badges — one per line, as <code>Title | short explanation</code></label>
+          <textarea name="trust_badges" rows="4" placeholder="Cash on Delivery|Pay the courier when your parcel arrives"></textarea>
+          <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">
+            Shown on every product page. Leave a line out rather than promising
+            something you can't back — an exchange window, for instance, only
+            belongs here once you've decided what it is.
+          </p>
+        </div>
+        <div class="full">
+          <label>What happens after an order is placed (shown at checkout)</label>
+          <input name="cod_confirm_note" placeholder="We'll confirm your order on WhatsApp or by phone before dispatch.">
+        </div>
+        <div class="full">
+          <label>Exchange / returns line (optional — added after the note above)</label>
+          <input name="exchange_note" placeholder="Exchange within 7 days if the parcel is unopened.">
+        </div>
+        <div>
+          <label>“Still in your bag” reminder</label>
+          <select name="bag_reminder">
+            <option value="1">Show a quiet reminder on return visits</option>
+            <option value="0">Off</option>
+          </select>
+          <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Lives in the visitor's own browser — no email address, no consent needed.</p>
+        </div>
+        <button type="submit" class="btn">Save Trust Settings</button>
+        <div id="trust-form-msg" class="full" style="font-size:13px;"></div>
+      </form>
+    </div>
     <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:28px; background:var(--ivory-warm);">
       <b style="font-size:13.5px;">Image compression is on for every upload</b>
       <p style="font-size:13px; color:var(--charcoal-soft); margin:6px 0 0;">
@@ -368,7 +497,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    ['orders','products','banners','subscribers','site','fabrics','menu','shipping','discounts','dashboard'].forEach(name => {
+    ['orders','products','banners','subscribers','reviews','site','fabrics','menu','shipping','discounts','dashboard'].forEach(name => {
       document.getElementById('tab-' + name).style.display = tab.dataset.tab === name ? '' : 'none';
     });
   });
@@ -498,6 +627,62 @@ function showCompressionNote(before, after, count) {
   window.__compTimer = setTimeout(() => { box.style.display = 'none'; }, 6000);
 }
 
+/* ---------------- Grid thumbnails ----------------
+   The storefront's product grids ask for "<name>.thumb.<ext>" — a 600px
+   copy — and fall back to the master when one doesn't exist. Building it
+   here at upload time is what keeps a 30-product grid light on mobile
+   data: roughly 40 KB a card instead of 200 KB. */
+const THUMB_MAX = 600;
+
+async function makeThumbBlob(source) {
+  const bitmap = await new Promise((resolve) => {
+    const img = new Image();
+    let url = null;
+    if (typeof source === 'string') { img.crossOrigin = 'anonymous'; img.src = source; }
+    else { url = URL.createObjectURL(source); img.src = url; }
+    img.onload = () => { if (url) URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { if (url) URL.revokeObjectURL(url); resolve(null); };
+  });
+  if (!bitmap || !bitmap.naturalWidth) return null;
+  let { naturalWidth: w, naturalHeight: h } = bitmap;
+  if (w <= THUMB_MAX && h <= THUMB_MAX) return null; // already small enough
+  if (w > h) { h = Math.round(h * (THUMB_MAX / w)); w = THUMB_MAX; }
+  else { w = Math.round(w * (THUMB_MAX / h)); h = THUMB_MAX; }
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  const type = supportsWebp() ? 'image/webp' : 'image/jpeg';
+  for (const q of [0.78, 0.7, 0.62]) {
+    const blob = await canvasToBlob(canvas, type, q);
+    if (blob && blob.size <= 70 * 1024) return blob;
+    if (blob && q === 0.62) return blob;
+  }
+  return null;
+}
+
+// Admin lists show 40px thumbs — use the small copy there too.
+function adminThumb(u) {
+  const k = thumbKeyFor(u);
+  return k ? '/' + k : u;
+}
+
+function thumbKeyFor(imageUrl) {
+  if (!imageUrl || imageUrl.indexOf('/uploads/') !== 0) return null;
+  return imageUrl.slice(1).replace(/(\.[a-z0-9]{2,5})$/i, '.thumb$1');
+}
+
+async function uploadAtKey(blob, key) {
+  const fd = new FormData();
+  fd.append('files', new File([blob], key.split('/').pop(), { type: blob.type }));
+  fd.append('key', key);
+  const res = await fetch('/api/admin/upload', { method: 'POST', body: fd });
+  if (!res.ok) throw new Error('Thumbnail upload failed');
+  return res.json();
+}
+
 async function uploadFiles(fileList, preset = 'product') {
   const originals = Array.from(fileList);
   const compressed = await Promise.all(originals.map(f => compressImage(f, preset)));
@@ -513,8 +698,62 @@ async function uploadFiles(fileList, preset = 'product') {
     throw new Error(err.error || 'Upload failed');
   }
   const data = await res.json();
+
+  // Product photos also get their grid-sized copy, built from the same
+  // already-compressed file so it costs one extra small upload.
+  if (preset === 'product') {
+    await Promise.allSettled(data.urls.map(async (u, i) => {
+      const key = thumbKeyFor(u);
+      if (!key || !compressed[i]) return;
+      const blob = await makeThumbBlob(compressed[i]);
+      if (blob) await uploadAtKey(blob, key);
+    }));
+  }
   return data.urls;
 }
+
+/* Retro-fit: build the missing grid copies for photos already in the store.
+   Runs in the browser — each photo is downloaded once, resized, and the
+   small copy uploaded beside it. Nothing in the database changes. */
+async function buildMissingThumbnails(statusEl) {
+  const say = (t) => { if (statusEl) statusEl.textContent = t; };
+  say('Reading catalogue…');
+  const products = await fetch('/api/products').then(r => r.json());
+  const urls = new Set();
+  products.forEach(p => {
+    [p.image_url, p.image_url_2].forEach(u => { if (u) urls.add(u); });
+    try { (JSON.parse(p.images_json || '[]') || []).forEach(u => { if (u) urls.add(u); }); } catch (e) {}
+  });
+  const list = [...urls].filter(u => u.indexOf('/uploads/') === 0);
+  let built = 0, skipped = 0, failed = 0, done = 0;
+
+  for (const u of list) {
+    done++;
+    say(`Photo ${done} of ${list.length} — ${built} built, ${skipped} already done`);
+    const key = thumbKeyFor(u);
+    if (!key) { skipped++; continue; }
+    try {
+      const probe = await fetch('/' + key + '?exact=1', { method: 'HEAD' });
+      if (probe.ok) { skipped++; continue; }
+      const blob = await makeThumbBlob(u);
+      if (!blob) { skipped++; continue; }
+      await uploadAtKey(blob, key);
+      built++;
+    } catch (e) {
+      failed++;
+    }
+  }
+  say(`Done — ${built} built, ${skipped} already fine${failed ? `, ${failed} failed` : ''}. Grids load from the small copies from now on.`);
+}
+
+document.getElementById('build-thumbs-btn')?.addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const status = document.getElementById('build-thumbs-status');
+  btn.disabled = true;
+  try { await buildMissingThumbnails(status); }
+  catch (err) { status.textContent = 'Failed: ' + err.message; }
+  btn.disabled = false;
+});
 
 /* ---------------- Ordering helper ----------------
    Shared by products, fabrics and banners: ▲▼ swap two neighbours,
@@ -578,7 +817,7 @@ async function loadOrders() {
     root.innerHTML = `
       <table class="admin-table">
         <thead><tr>
-          <th>#</th><th>Customer</th><th>Phone</th><th>Address</th><th>Items</th><th>Total</th><th>Status</th><th>PostEx</th><th>Date</th>
+          <th>#</th><th>Customer</th><th>Phone</th><th>Address</th><th>Items</th><th>Total</th><th>Status</th><th>History</th><th>PostEx</th><th>Date</th>
         </tr></thead>
         <tbody>
           ${orders.map(o => {
@@ -588,7 +827,12 @@ async function loadOrders() {
               <tr>
                 <td>${o.id}</td>
                 <td>${o.customer_name}</td>
-                <td>${o.phone}</td>
+                <td>
+                  ${o.phone}
+                  <a href="https://wa.me/92${String(o.phone).replace(/^0/, '')}?text=${encodeURIComponent('Assalam-o-alaikum ' + o.customer_name + ', this is Calista. Confirming your order #' + o.id + ' for Rs. ' + o.total + ' (cash on delivery). Reply YES and we will dispatch it today.')}"
+                     target="_blank" rel="noopener" class="btn btn-outline-dark"
+                     style="display:inline-block; margin-top:5px; padding:5px 10px; font-size:11px; white-space:nowrap;">Confirm &rarr;</a>
+                </td>
                 <td>${o.address}, ${o.city}</td>
                 <td class="admin-items-list">${items.map(i => `${i.name} x${i.qty}`).join('<br>')}</td>
                 <td>${money(o.total)}</td>
@@ -597,6 +841,11 @@ async function loadOrders() {
                     ${['pending','confirmed','shipped','delivered','cancelled'].map(s =>
                       `<option value="${s}" ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
                   </select>
+                </td>
+                <td style="white-space:nowrap; font-size:11.5px;">
+                  ${o.phone_orders > 1 ? `${o.phone_orders} orders from this number<br>${o.phone_delivered || 0} delivered` : 'First order'}
+                  ${o.phone_cancelled > 0 ? `<div style="color:var(--gold);">${o.phone_cancelled} cancelled</div>` : ''}
+                  ${o.risk_note ? `<div style="color:var(--gold);">${escapeHtml(o.risk_note)}</div>` : ''}
                 </td>
                 <td style="white-space:nowrap;">
                   ${o.postex_tracking ? `
@@ -701,7 +950,7 @@ function renderProductsTable(products) {
         ${products.map((p, i) => `
           <tr data-id="${p.id}">
             <td><input type="checkbox" class="product-select" value="${p.id}"></td>
-            <td>${p.image_url ? `<img src="${p.image_url}" style="width:40px;height:52px;object-fit:cover;object-position:top center;">` : ''}</td>
+            <td>${p.image_url ? `<img src="${adminThumb(p.image_url)}" loading="lazy" style="width:40px;height:52px;object-fit:cover;object-position:top center;">` : ''}</td>
             <td>${p.name}</td>
             <td>${p.fabric || ''}</td>
             <td>${priceHtml(p)}</td>
@@ -1083,13 +1332,14 @@ async function loadBannersAdmin() {
     }
     root.innerHTML = `
       <table class="admin-table">
-        <thead><tr><th>Shows</th><th></th><th>Heading</th><th>Mobile img</th><th>Display order</th><th>Active</th><th></th></tr></thead>
+        <thead><tr><th>Shows</th><th></th><th>Heading</th><th>Shown to</th><th>Mobile img</th><th>Display order</th><th>Active</th><th></th></tr></thead>
         <tbody>
           ${banners.map((b, i) => `
             <tr>
               <td style="font-size:12px; color:var(--charcoal-soft);">${i === 0 ? '<b style="color:var(--ink-green);">1st</b>' : (i + 1) + 'th'}</td>
               <td>${b.image_url ? `<img src="${b.image_url}" style="width:52px;height:34px;object-fit:cover;">` : '—'}</td>
-              <td>${b.heading}</td>
+              <td>${b.heading || '<i style="color:var(--charcoal-soft);">image only</i>'}</td>
+              <td style="font-size:12px;">${b.device === 'desktop' ? '🖥 Desktop only' : (b.device === 'mobile' ? '📱 Mobile only' : 'Everyone')}</td>
               <td>${b.mobile_fabric_source ? `🔄 ${b.mobile_fabric_source}` : (b.image_url_mobile ? `<img src="${b.image_url_mobile}" style="width:30px;height:40px;object-fit:cover;">` : '—')}</td>
               <td>${reorderControls(banners, b.id)}</td>
               <td>${b.is_active ? 'Yes' : 'No'}</td>
@@ -1131,6 +1381,7 @@ async function loadBannersAdmin() {
         renderBannerImagePreview();
         renderBannerImageMobilePreview();
         document.getElementById('banner-fabric-source-select').value = b.mobile_fabric_source || '';
+        document.getElementById('banner-device-select').value = b.device || 'both';
         editingBannerId = b.id;
         document.getElementById('banner-form-title').textContent = 'Edit Banner';
         document.querySelector('#banner-form button[type=submit]').textContent = 'Save Changes';
@@ -1152,6 +1403,7 @@ function resetBannerForm() {
   renderBannerImagePreview();
   renderBannerImageMobilePreview();
   document.getElementById('banner-fabric-source-select').value = '';
+  document.getElementById('banner-device-select').value = 'both';
   editingBannerId = null;
   document.getElementById('banner-form-title').textContent = 'Add Banner';
   document.querySelector('#banner-form button[type=submit]').textContent = 'Add Banner';
@@ -1173,6 +1425,7 @@ document.getElementById('banner-form').addEventListener('submit', async (e) => {
     image_url: bannerImageUrl,
     image_url_mobile: bannerImageMobileUrl,
     mobile_fabric_source: document.getElementById('banner-fabric-source-select').value || null,
+    device: document.getElementById('banner-device-select').value || 'both',
     sort_order: Number(form.sort_order.value) || 0
   };
   try {
@@ -1466,7 +1719,7 @@ function renderAssignList(filterText) {
   box.innerHTML = list.map(p => `
     <label style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px;">
       <input type="checkbox" class="navtab-assign-cb" value="${p.id}" ${currentAssignedIds.has(p.id) ? 'checked' : ''}>
-      <img src="${p.image_url}" style="width:34px; height:44px; object-fit:cover;">
+      <img src="${adminThumb(p.image_url)}" loading="lazy" style="width:34px; height:44px; object-fit:cover;">
       <span>${p.name}</span>
     </label>
   `).join('');
@@ -2047,6 +2300,7 @@ async function loadSiteSettings() {
     if (SITE_SETTINGS.tiktok_pixel_id) {
       document.getElementById('tiktok-pixel-id-input').value = SITE_SETTINGS.tiktok_pixel_id;
     }
+    fillTrustForm(SITE_SETTINGS);
   } catch (e) {
     // fine if settings haven't been created yet
   }
@@ -2070,6 +2324,166 @@ document.getElementById('save-tiktok-pixel-btn').addEventListener('click', async
     msg.style.color = 'var(--gold)';
   }
 });
+/* ---------------- Reviews ---------------- */
+let REVIEW_PRODUCTS = null;
+
+async function fillReviewProductSelect() {
+  const sel = document.getElementById('review-product-select');
+  if (!sel || sel.dataset.filled) return;
+  try {
+    REVIEW_PRODUCTS = REVIEW_PRODUCTS || await api('/api/admin/products');
+    sel.innerHTML = '<option value="">General — store-wide review</option>' +
+      REVIEW_PRODUCTS.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    sel.dataset.filled = '1';
+  } catch (e) { /* leave the general option */ }
+}
+
+async function loadReviews() {
+  const root = document.getElementById('reviews-admin-root');
+  if (!root) return;
+  fillReviewProductSelect();
+  try {
+    const reviews = await api('/api/admin/reviews');
+    if (!reviews.length) {
+      root.innerHTML = '<p style="color:var(--charcoal-soft);">No reviews yet. Add the first one above.</p>';
+      return;
+    }
+    root.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th>Customer</th><th>Product</th><th>Rating</th><th>Review</th><th>Consent</th><th>Live</th><th></th></tr></thead>
+        <tbody>
+          ${reviews.map(r => `
+            <tr>
+              <td>${escapeHtml(r.customer_name)}${r.city ? '<div style="font-size:11.5px; color:var(--charcoal-soft);">' + escapeHtml(r.city) + '</div>' : ''}</td>
+              <td>${r.product_name ? escapeHtml(r.product_name) : '<span style="color:var(--charcoal-soft);">Store-wide</span>'}</td>
+              <td>${r.rating}/5</td>
+              <td class="admin-items-list">${escapeHtml(r.body || '')}</td>
+              <td>${r.consent ? 'Yes' : '<span style="color:var(--gold);">Not confirmed</span>'}</td>
+              <td>${r.is_approved ? 'Live' : 'Hidden'}</td>
+              <td style="white-space:nowrap;">
+                <button class="btn btn-outline-dark" data-review-edit="${r.id}" style="padding:6px 12px; font-size:11.5px;">Edit</button>
+                <button class="admin-delete-btn" data-review-del="${r.id}" style="font-size:11px;">Delete</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+
+    root.querySelectorAll('[data-review-del]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this review?')) return;
+        await api('/api/admin/reviews?id=' + btn.dataset.reviewDel, { method: 'DELETE' });
+        loadReviews();
+      });
+    });
+    root.querySelectorAll('[data-review-edit]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const r = reviews.find(x => x.id === Number(btn.dataset.reviewEdit));
+        const f = document.getElementById('review-form');
+        f.id.value = r.id;
+        f.customer_name.value = r.customer_name || '';
+        f.city.value = r.city || '';
+        f.rating.value = String(r.rating || 5);
+        f.body.value = r.body || '';
+        f.consent.checked = !!r.consent;
+        f.is_approved.checked = !!r.is_approved;
+        fillReviewProductSelect().then(() => { f.product_id.value = r.product_id ? String(r.product_id) : ''; });
+        document.getElementById('review-form-title').textContent = 'Edit Review';
+        document.getElementById('review-cancel-edit').style.display = '';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    });
+  } catch (e) {
+    root.innerHTML = '<p style="color:var(--gold);">Could not load reviews: ' + e.message + '</p>';
+  }
+}
+
+function resetReviewForm() {
+  const f = document.getElementById('review-form');
+  f.reset();
+  f.id.value = '';
+  document.getElementById('review-form-title').textContent = 'Add Review';
+  document.getElementById('review-cancel-edit').style.display = 'none';
+}
+
+document.getElementById('review-cancel-edit').addEventListener('click', resetReviewForm);
+
+document.getElementById('review-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const msg = document.getElementById('review-form-msg');
+  if (f.is_approved.checked && !f.consent.checked) {
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Tick the consent box before publishing — a review stays hidden without it.';
+    return;
+  }
+  const payload = {
+    id: f.id.value || null,
+    customer_name: f.customer_name.value,
+    city: f.city.value,
+    rating: f.rating.value,
+    product_id: f.product_id.value || null,
+    body: f.body.value,
+    consent: f.consent.checked,
+    is_approved: f.is_approved.checked
+  };
+  msg.style.color = 'var(--charcoal-soft)';
+  msg.textContent = 'Saving…';
+  try {
+    await api('/api/admin/reviews', {
+      method: payload.id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Saved ✓';
+    resetReviewForm();
+    loadReviews();
+  } catch (err) {
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Error: ' + err.message;
+  }
+});
+
+/* ---------------- Trust settings ---------------- */
+const TRUST_KEYS = ['low_stock_threshold','trust_badges','cod_confirm_note','exchange_note','reviews_enabled','bag_reminder'];
+
+function fillTrustForm(s) {
+  const f = document.getElementById('trust-form');
+  if (!f) return;
+  if (s.low_stock_threshold) f.low_stock_threshold.value = s.low_stock_threshold;
+  f.trust_badges.value = (s.trust_badges === undefined || s.trust_badges === null)
+    ? ['Cash on Delivery|Pay the courier when your parcel arrives',
+       'Tracked Delivery|Booked with PostEx — tracking sent on WhatsApp',
+       'WhatsApp Support|Message us any time before or after ordering'].join('\n')
+    : s.trust_badges;
+  if (s.cod_confirm_note) f.cod_confirm_note.value = s.cod_confirm_note;
+  if (s.exchange_note) f.exchange_note.value = s.exchange_note;
+  f.reviews_enabled.value = s.reviews_enabled === '0' ? '0' : '1';
+  f.bag_reminder.value = s.bag_reminder === '0' ? '0' : '1';
+}
+
+document.getElementById('trust-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const msg = document.getElementById('trust-form-msg');
+  const body = {};
+  TRUST_KEYS.forEach(k => { body[k] = String(f[k].value).trim(); });
+  msg.style.color = 'var(--charcoal-soft)';
+  msg.textContent = 'Saving…';
+  try {
+    await api('/api/admin/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    Object.assign(SITE_SETTINGS, body);
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Saved ✓ — live on the site straight away.';
+  } catch (err) {
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Error: ' + err.message;
+  }
+});
+
+loadReviews();
 </script>
 </body>
 </html>

@@ -14,7 +14,9 @@
 <link rel="canonical" id="canonical-link" href="https://calista.pages.dev/product.html">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"></noscript>
 <link rel="stylesheet" href="/styles.css">
 <script>
 !function (w, d, t) {
@@ -40,7 +42,7 @@
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
     </div>
-    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" src="" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
+    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
     <div class="header-icons">
       <button class="header-icon-btn" id="header-search-btn" aria-label="Search">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -76,6 +78,8 @@
 
 <div class="container" id="related-root" style="padding: 20px 24px 60px;"></div>
 
+<div class="container product-reviews" id="reviews-root" style="padding: 0 24px 60px;"></div>
+
 <footer class="site-footer">
   <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
 </footer>
@@ -109,8 +113,9 @@
     galleryImages = [product.image_url, product.image_url_2].filter(Boolean);
   }
 
-  const stockNote = product.stock > 0 && product.stock <= 5
-    ? `<p class="low-stock">Only ${product.stock} left in stock</p>` : '';
+  // Filled in once settings load — the note only ever quotes the real
+  // stock number, and the threshold is set in Admin → Settings.
+  const stockNote = '<div id="stock-note"></div>';
 
   root.innerHTML = `
     <div class="product-gallery-slider">
@@ -125,6 +130,7 @@
       <span class="fabric-tag">${product.fabric || ''}</span>
       <h1>${product.name}</h1>
       <div class="price-row">${priceHtml(product)}</div>
+      <div id="product-stars" class="product-stars"></div>
       ${stockNote}
       <div class="desc">${cleanDescription(product.description)}</div>
       <button class="btn cart-btn" id="add-btn" style="width:100%;">
@@ -151,6 +157,7 @@
           </span>
         </a>
       </div>
+      <div id="trust-panel-mount"></div>
     </div>
   `;
 
@@ -185,6 +192,19 @@
   });
 
   loadRelatedProducts(product);
+
+  // Honest stock note, rating row, trust panel and reviews.
+  convSettings().then(s => {
+    const noteEl = document.getElementById('stock-note');
+    if (noteEl) noteEl.innerHTML = stockNoteHtml(product, s.lowStock);
+  });
+  getReviewsSummary().then(map => {
+    const r = map[product.id];
+    const el = document.getElementById('product-stars');
+    if (el && r && r.count) el.innerHTML = starsHtml(r.average, r.count, 15);
+  });
+  renderTrustPanel('trust-panel-mount');
+  renderProductReviews(product.id, 'reviews-root');
 
   initGallery(galleryImages);
 
@@ -265,7 +285,7 @@
         ${related.map(p => `
           <a class="product-card" href="/product.html?slug=${p.slug}">
             <div class="product-thumb">
-              <img src="${p.image_url}" alt="${p.name}" loading="lazy">
+              <img src="${thumbUrl(p.image_url)}" alt="${p.name}" loading="lazy" decoding="async">
               ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
             </div>
             <div class="product-info">

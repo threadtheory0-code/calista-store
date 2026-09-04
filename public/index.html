@@ -26,7 +26,9 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"></noscript>
 <link rel="stylesheet" href="/styles.css">
 <script>
 !function (w, d, t) {
@@ -54,7 +56,7 @@
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
     </div>
-    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" src="" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
+    <a href="/" class="logo" id="site-logo-link"><img id="site-logo-img" alt="Calista" style="display:none; height:32px;"><span id="site-logo-text">Calista</span></a>
     <div class="header-icons">
       <button class="header-icon-btn" id="header-search-btn" aria-label="Search">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -229,23 +231,40 @@
   grid.innerHTML = products.map((p, i) => `
     <a class="product-card" href="/product.html?slug=${p.slug}">
       <div class="product-thumb">
-        <img src="${p.image_url}" alt="${p.name}" width="600" height="800" decoding="async" ${i < 4 ? 'fetchpriority="high"' : 'loading="lazy"'}>
-        ${p.image_url_2 ? `<img class="img-alt" src="${p.image_url_2}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">` : ''}
+        <img src="${thumbUrl(p.image_url)}" alt="${p.name}" width="600" height="800" decoding="async" ${i < 4 ? 'fetchpriority="high"' : 'loading="lazy"'}>
+        ${p.image_url_2 ? `<img class="img-alt" src="${thumbUrl(p.image_url_2)}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">` : ''}
         ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
+        ${Number(p.stock) <= 0 ? `<span class="badge-soldout">Sold Out</span>` : ''}
       </div>
       <div class="product-info">
         <div class="product-name">${p.name}</div>
         <div class="product-price">${priceHtml(p)}</div>
+        <div class="card-stars" data-stars="${p.id}"></div>
       </div>
     </a>
   `).join('');
+  hydrateCardStars(grid);
 })();
+
+let BANNER_SCREEN_WAS_MOBILE = null;
 
 async function loadBanners() {
   const hero = document.getElementById('hero');
   try {
-    const banners = await apiCached('/api/banners');
-    if (!Array.isArray(banners) || banners.length === 0) return;
+    const all = await apiCached('/api/banners');
+    if (!Array.isArray(all) || all.length === 0) return;
+
+    /* Per-device banners. "Everyone" banners always show; desktop-only and
+       mobile-only ones are filtered by screen width, so a phone never
+       downloads a banner built for a laptop and vice versa. If the filter
+       leaves nothing, fall back to the full set rather than an empty hero. */
+    const onMobile = window.matchMedia('(max-width: 720px)').matches;
+    const forThisScreen = all.filter(b => {
+      const d = b.device || 'both';
+      return d === 'both' || (onMobile ? d === 'mobile' : d === 'desktop');
+    });
+    const banners = forThisScreen.length ? forThisScreen : all;
+    BANNER_SCREEN_WAS_MOBILE = onMobile;
 
     hero.innerHTML = banners.map((b, i) => {
       const styleParts = [];
@@ -335,7 +354,12 @@ function fitHeroToImage() {
 let _heroFitTimer;
 window.addEventListener('resize', () => {
   clearTimeout(_heroFitTimer);
-  _heroFitTimer = setTimeout(fitHeroToImage, 200);
+  _heroFitTimer = setTimeout(() => {
+    // Crossing the phone/desktop line swaps which banners apply.
+    const nowMobile = window.matchMedia('(max-width: 720px)').matches;
+    if (BANNER_SCREEN_WAS_MOBILE !== null && nowMobile !== BANNER_SCREEN_WAS_MOBILE) loadBanners();
+    else fitHeroToImage();
+  }, 200);
 }, { passive: true });
 
 function initHeroSlider() {
@@ -397,7 +421,7 @@ async function loadFabricTiles() {
         const tileLink = track.querySelector(`[data-fabric-tile="${CSS.escape(f.name)}"] .tile-photo`);
         if (tileLink) {
           tileLink.classList.remove('tile-photo-icon');
-          tileLink.innerHTML = `<img src="${pick.image_url}" alt="${f.name}" width="220" height="220" loading="lazy" decoding="async">`;
+          tileLink.innerHTML = `<img src="${thumbUrl(pick.image_url)}" alt="${f.name}" width="220" height="220" loading="lazy" decoding="async">`;
         }
       });
       initFabricSwipe();
@@ -414,7 +438,7 @@ loadFabricTiles();
 
     if (s.insta_gallery_mode === 'random') {
       const products = await getProducts();
-      const pool = products.map(p => p.image_url).filter(Boolean);
+      const pool = products.map(p => thumbUrl(p.image_url)).filter(Boolean);
       const shuffled = pool.sort(() => Math.random() - 0.5).slice(0, 6);
       shuffled.forEach((url, i) => {
         const el = document.getElementById('insta-' + (i + 1));
