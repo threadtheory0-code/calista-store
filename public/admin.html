@@ -766,7 +766,7 @@ async function buildMissingThumbnails(statusEl) {
       failed++;
     }
   }
-  say(`Done — ${built} built, ${skipped} already fine${failed ? `, ${failed} failed` : ''}. Grids load from the small copies from now on.`);
+  say(`Done — ${built} built, ${skipped} already fine${failed ? `, ${failed} failed` : ''}. ${list.length ? 'Grids load from the small copies from now on.' : `No photos in your own store yet — ${products.length} products read. Run Step 1 first.`}`);
 }
 
 document.getElementById('build-thumbs-btn')?.addEventListener('click', async (e) => {
@@ -797,11 +797,13 @@ async function importOutsidePhotos(statusEl, includeGallery) {
   const list = [...urls].filter(u => typeof u === 'string' && u.indexOf('http') === 0);
 
   if (!list.length) {
-    say('Nothing to move — every photo is already in your own store.');
+    say(`Nothing to move — ${products.length} products read, none with an outside photo address.`);
     return;
   }
+  say(`Found ${list.length} outside photos across ${products.length} products…`);
 
-  let moved = 0, failed = 0;
+  let moved = 0, failed = 0, repointed = 0;
+  const notes = [];
   const BATCH = 6;
   for (let i = 0; i < list.length; i += BATCH) {
     const batch = list.slice(i, i + BATCH);
@@ -812,14 +814,29 @@ async function importOutsidePhotos(statusEl, includeGallery) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls: batch })
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data;
+      try { data = JSON.parse(raw); }
+      catch (e) { throw new Error(`server sent HTTP ${res.status}: ${raw.slice(0, 120)}`); }
+      if (data.error) throw new Error(data.error);
+
       moved += data.imported || 0;
       failed += data.failed || 0;
+      repointed += data.repointed || 0;
+      (data.problems || []).concat(data.dbProblems || []).forEach(t => {
+        if (notes.length < 3 && !notes.includes(t)) notes.push(t);
+      });
     } catch (e) {
       failed += batch.length;
+      if (notes.length < 3) notes.push(e.message);
     }
   }
-  say(`Done — ${moved} photos moved into your store${failed ? `, ${failed} failed` : ''}. Now run Step 2.`);
+
+  let msg = `Done — ${moved} photos moved, ${repointed} product photos repointed`;
+  if (failed) msg += `, ${failed} failed`;
+  msg += moved ? '. Now run Step 2.' : '.';
+  if (notes.length) msg += ` — ${notes.join(' | ')}`;
+  say(msg);
 }
 
 document.getElementById('import-images-btn')?.addEventListener('click', async (e) => {
