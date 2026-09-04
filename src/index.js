@@ -95,12 +95,38 @@ async function ensureSchema(env) {
     "ALTER TABLE nav_tabs ADD COLUMN show_in_topbar INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE orders ADD COLUMN postex_tracking TEXT",
     "ALTER TABLE orders ADD COLUMN postex_status TEXT",
-    "ALTER TABLE orders ADD COLUMN postex_booked_at TEXT"
+    "ALTER TABLE orders ADD COLUMN postex_booked_at TEXT",
+    "ALTER TABLE banners ADD COLUMN device TEXT NOT NULL DEFAULT 'both'",
+    "ALTER TABLE orders ADD COLUMN verified_at TEXT",
+    "ALTER TABLE orders ADD COLUMN risk_note TEXT",
+    `CREATE TABLE IF NOT EXISTS reviews (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       product_id INTEGER,
+       customer_name TEXT NOT NULL,
+       city TEXT,
+       rating INTEGER NOT NULL DEFAULT 5,
+       body TEXT,
+       consent INTEGER NOT NULL DEFAULT 0,
+       is_approved INTEGER NOT NULL DEFAULT 0,
+       sort_order INTEGER NOT NULL DEFAULT 0,
+       created_at TEXT DEFAULT (datetime('now'))
+     )`
   ];
   for (const sql of migrations) {
     try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
   }
   SCHEMA_READY = true;
+}
+
+// Pakistani mobile numbers, normalised to 03XXXXXXXXX.
+// Returns null when the number can't be a real mobile — the main source of
+// junk cash-on-delivery orders.
+function normalisePhone(input) {
+  let d = String(input || '').replace(/[^0-9]/g, '');
+  if (d.startsWith('0092')) d = d.slice(4);
+  else if (d.startsWith('92')) d = d.slice(2);
+  if (d.startsWith('3')) d = '0' + d;
+  return /^03[0-9]{9}$/.test(d) ? d : null;
 }
 
 // Collect the fabric names and tab ids behind a set of tabs.
@@ -120,6 +146,11 @@ function normaliseFabrics(input) {
   const list = Array.isArray(input) ? input : String(input || '').split(',');
   const clean = list.map(s => String(s).trim()).filter(Boolean);
   return clean.length ? clean.join(',') : null;
+}
+
+// Which visitors a banner is for: everyone, big screens only, phones only.
+function bannerDevice(v) {
+  return ['desktop', 'mobile'].includes(String(v || '')) ? String(v) : 'both';
 }
 
 function json(data, status = 200) {
@@ -176,8 +207,75 @@ async function notifyNewOrder(order, env) {
   ]);
 }
 
+/* ============================================================
+   EDGE CACHING
+   Cloudflare does not cache Worker responses on its own, so every
+   photo request used to mean a Worker invocation plus a fresh R2
+   read — the reason the site slowed to a crawl once the catalogue
+   grew. These helpers put the CDN in front of both photos and the
+   read-only API, and admin writes purge the API keys so edits still
+   appear immediately.
+   ============================================================ */
+
+// Read-only endpoints safe to serve from the edge for a short window.
+const CACHEABLE_API = [
+  '/api/products', '/api/banners', '/api/fabric-categories',
+  '/api/settings', '/api/nav-tabs', '/api/tiktok-pixel-id',
+  '/api/reviews-summary'
+];
+
+function isCacheableApi(path) {
+  return CACHEABLE_API.includes(path);
+}
+
+// Drop every cached variant of the read-only API after an admin write.
+async function purgeApiCache(origin) {
+  const cache = caches.default;
+  const keys = [];
+  for (const p of CACHEABLE_API) {
+    keys.push(origin + p);
+    // Query-string variants the storefront actually requests.
+    for (const q of ['?fabric=', '?tab=', '?view=new', '?gender=women', '?gender=men']) {
+      keys.push(origin + p + q);
+    }
+  }
+  await Promise.allSettled(keys.map(k => cache.delete(new Request(k))));
+}
+
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const cache = caches.default;
+    const isGet = request.method === 'GET';
+
+    // 1. Serve a cached copy when we have one.
+    if (isGet && isCacheableApi(url.pathname)) {
+      const hit = await cache.match(request);
+      if (hit) return hit;
+    }
+
+    const response = await this.handle(request, env, ctx);
+
+    // 2. Store fresh read-only API responses at the edge.
+    if (isGet && isCacheableApi(url.pathname) && response.status === 200) {
+      const cached = new Response(response.body, response);
+      cached.headers.set(
+        'Cache-Control',
+        'public, max-age=30, s-maxage=120, stale-while-revalidate=600'
+      );
+      ctx.waitUntil(cache.put(request, cached.clone()));
+      return cached;
+    }
+
+    // 3. Any admin write invalidates the read-only API immediately.
+    if (request.method !== 'GET' && url.pathname.startsWith('/api/admin/')) {
+      ctx.waitUntil(purgeApiCache(url.origin));
+    }
+
+    return response;
+  },
+
+  async handle(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -187,17 +285,53 @@ export default {
       return unauthorized();
     }
 
+    /* Photos. Three things happen here that did not before:
+       • the response is stored in the CDN cache, so the second and every
+         later visitor is served from the edge — no Worker→R2 round trip;
+       • a returning browser gets a 304 from a HEAD instead of the whole file;
+       • a request for "….thumb.webp" that has no thumbnail yet falls back to
+         the full photo, so grid thumbnails are safe to link before they exist. */
     if (path.startsWith('/uploads/') && method === 'GET') {
       try {
-        const key = path.slice(1);
+        const cache = caches.default;
+        const hit = await cache.match(request);
+        if (hit) return hit;
+
+        let key = decodeURIComponent(path.slice(1));
+        let meta = await env.IMAGES.head(key);
+        // No thumbnail generated for this photo yet — serve the original.
+        // ?exact=1 turns the fallback off, so the admin thumbnail builder can
+        // tell which photos still need one.
+        const exact = url.searchParams.get('exact') === '1';
+        if (!meta && !exact && /\.thumb\.[a-z0-9]{2,5}$/i.test(key)) {
+          key = key.replace(/\.thumb(\.[a-z0-9]{2,5})$/i, '$1');
+          meta = await env.IMAGES.head(key);
+        }
+        if (!meta) return new Response('Not found', { status: 404 });
+
+        if (request.headers.get('If-None-Match') === meta.httpEtag) {
+          return new Response(null, {
+            status: 304,
+            headers: {
+              'ETag': meta.httpEtag,
+              'Cache-Control': 'public, max-age=31536000, immutable'
+            }
+          });
+        }
+
         const obj = await env.IMAGES.get(key);
         if (!obj) return new Response('Not found', { status: 404 });
-        return new Response(obj.body, {
-          headers: {
-            'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
-            'Cache-Control': 'public, max-age=31536000, immutable'
-          }
-        });
+
+        const headers = new Headers();
+        obj.writeHttpMetadata(headers);
+        headers.set('Content-Type', obj.httpMetadata?.contentType || 'image/jpeg');
+        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        headers.set('ETag', obj.httpEtag);
+        headers.set('Accept-Ranges', 'bytes');
+
+        const res = new Response(obj.body, { headers });
+        ctx.waitUntil(cache.put(request, res.clone()));
+        return res;
       } catch (err) {
         return new Response('Error', { status: 500 });
       }
@@ -207,12 +341,17 @@ export default {
       try {
         const formData = await request.formData();
         const files = formData.getAll('files');
+        // An explicit key lets the admin "build thumbnails" tool write a
+        // variant beside an existing photo (…-abc.thumb.webp).
+        const explicitKey = formData.get('key');
         const urls = [];
         for (const file of files) {
           if (!file || typeof file === 'string') continue;
           const rawExt = (file.name || '').split('.').pop().toLowerCase();
           const ext = /^[a-z0-9]{2,5}$/.test(rawExt) ? rawExt : 'jpg';
-          const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+          const key = (typeof explicitKey === 'string' && /^uploads\/[A-Za-z0-9._-]+$/.test(explicitKey))
+            ? explicitKey
+            : `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
           await env.IMAGES.put(key, await file.arrayBuffer(), {
             httpMetadata: { contentType: file.type || 'image/jpeg' }
           });
@@ -233,7 +372,22 @@ export default {
         "ALTER TABLE nav_tabs ADD COLUMN show_in_topbar INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE orders ADD COLUMN postex_tracking TEXT",
         "ALTER TABLE orders ADD COLUMN postex_status TEXT",
-        "ALTER TABLE orders ADD COLUMN postex_booked_at TEXT"
+        "ALTER TABLE orders ADD COLUMN postex_booked_at TEXT",
+    "ALTER TABLE banners ADD COLUMN device TEXT NOT NULL DEFAULT 'both'",
+        "ALTER TABLE orders ADD COLUMN verified_at TEXT",
+        "ALTER TABLE orders ADD COLUMN risk_note TEXT",
+        `CREATE TABLE IF NOT EXISTS reviews (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           product_id INTEGER,
+           customer_name TEXT NOT NULL,
+           city TEXT,
+           rating INTEGER NOT NULL DEFAULT 5,
+           body TEXT,
+           consent INTEGER NOT NULL DEFAULT 0,
+           is_approved INTEGER NOT NULL DEFAULT 0,
+           sort_order INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT DEFAULT (datetime('now'))
+         )`
       ];
       const applied = [], skipped = [];
       for (const sql of migrations) {
@@ -249,9 +403,26 @@ export default {
 
     if (path === '/api/admin/orders' && method === 'GET') {
       try {
+        await ensureSchema(env);
         const { results } = await env.DB
           .prepare('SELECT * FROM orders ORDER BY created_at DESC')
           .all();
+        // Cash-on-delivery history per phone number, so the admin can see at a
+        // glance whether a number has refused deliveries before.
+        const hist = {};
+        (await env.DB.prepare(
+          `SELECT phone,
+                  COUNT(*) AS orders,
+                  SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+                  SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled
+           FROM orders GROUP BY phone`
+        ).all()).results.forEach(r => { hist[r.phone] = r; });
+        results.forEach(o => {
+          const h = hist[o.phone] || {};
+          o.phone_orders = h.orders || 1;
+          o.phone_delivered = h.delivered || 0;
+          o.phone_cancelled = h.cancelled || 0;
+        });
         return json(results);
       } catch (err) {
         return json({ error: err.message }, 500);
@@ -266,6 +437,101 @@ export default {
           return json({ error: 'Invalid id or status' }, 400);
         }
         await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, id).run();
+        if (status === 'confirmed') {
+          try {
+            await env.DB.prepare("UPDATE orders SET verified_at = datetime('now') WHERE id = ? AND verified_at IS NULL").bind(id).run();
+          } catch (e) { /* column added on next migrate */ }
+        }
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    /* ---------------- Reviews ---------------- */
+
+    // Public: approved reviews for one product (or the whole store when no id).
+    if (path === '/api/reviews' && method === 'GET') {
+      try {
+        await ensureSchema(env);
+        const pid = url.searchParams.get('product_id');
+        const q = pid
+          ? env.DB.prepare('SELECT id, product_id, customer_name, city, rating, body, created_at FROM reviews WHERE is_approved = 1 AND product_id = ? ORDER BY sort_order ASC, id DESC').bind(pid)
+          : env.DB.prepare('SELECT id, product_id, customer_name, city, rating, body, created_at FROM reviews WHERE is_approved = 1 ORDER BY sort_order ASC, id DESC LIMIT 24');
+        const { results } = await q.all();
+        const count = results.length;
+        const avg = count ? results.reduce((s, r) => s + r.rating, 0) / count : 0;
+        return json({ reviews: results, count, average: Math.round(avg * 10) / 10 });
+      } catch (err) {
+        return json({ reviews: [], count: 0, average: 0 });
+      }
+    }
+
+    // Public: per-product rating totals, for stars on product cards.
+    if (path === '/api/reviews-summary' && method === 'GET') {
+      try {
+        await ensureSchema(env);
+        const { results } = await env.DB.prepare(
+          'SELECT product_id, COUNT(*) AS count, AVG(rating) AS average FROM reviews WHERE is_approved = 1 AND product_id IS NOT NULL GROUP BY product_id'
+        ).all();
+        const map = {};
+        results.forEach(r => { map[r.product_id] = { count: r.count, average: Math.round(r.average * 10) / 10 }; });
+        return json(map);
+      } catch (err) {
+        return json({});
+      }
+    }
+
+    if (path === '/api/admin/reviews' && method === 'GET') {
+      try {
+        await ensureSchema(env);
+        const { results } = await env.DB.prepare(
+          `SELECT r.*, p.name AS product_name FROM reviews r
+           LEFT JOIN products p ON p.id = r.product_id
+           ORDER BY r.is_approved ASC, r.id DESC`
+        ).all();
+        return json(results);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/reviews' && (method === 'POST' || method === 'PATCH')) {
+      try {
+        await ensureSchema(env);
+        const r = await request.json();
+        const name = String(r.customer_name || '').trim();
+        if (!name) return json({ error: 'Customer name is required' }, 400);
+        const rating = Math.min(5, Math.max(1, parseInt(r.rating, 10) || 5));
+        const consent = r.consent ? 1 : 0;
+        // A review can only go live once you've confirmed the customer agreed.
+        const approved = (r.is_approved && consent) ? 1 : 0;
+        const pid = r.product_id ? parseInt(r.product_id, 10) : null;
+        if (method === 'PATCH' && r.id) {
+          await env.DB.prepare(
+            `UPDATE reviews SET product_id = ?, customer_name = ?, city = ?, rating = ?,
+             body = ?, consent = ?, is_approved = ?, sort_order = ? WHERE id = ?`
+          ).bind(pid, name, r.city || null, rating, r.body || null, consent, approved,
+                 parseInt(r.sort_order, 10) || 0, r.id).run();
+        } else {
+          await env.DB.prepare(
+            `INSERT INTO reviews (product_id, customer_name, city, rating, body, consent, is_approved, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(pid, name, r.city || null, rating, r.body || null, consent, approved,
+                 parseInt(r.sort_order, 10) || 0).run();
+        }
+        ctx.waitUntil(purgeApiCache(url.origin));
+        return json({ success: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/admin/reviews' && method === 'DELETE') {
+      try {
+        const id = url.searchParams.get('id');
+        await env.DB.prepare('DELETE FROM reviews WHERE id = ?').bind(id).run();
+        ctx.waitUntil(purgeApiCache(url.origin));
         return json({ success: true });
       } catch (err) {
         return json({ error: err.message }, 500);
@@ -639,14 +905,18 @@ export default {
     if (path === '/api/admin/banners' && method === 'POST') {
       try {
         const b = await request.json();
-        if (!b.heading) return json({ error: 'Heading is required' }, 400);
+        // A banner needs either wording or artwork — a blank heading with an
+        // uploaded image is the "image only" banner.
+        if (!b.heading && !b.image_url && !b.image_url_mobile && !b.mobile_fabric_source) {
+          return json({ error: 'Add a heading or a banner image' }, 400);
+        }
         await env.DB.prepare(
-          `INSERT INTO banners (eyebrow, heading, subheading, button_text, button_link, image_url, image_url_mobile, mobile_fabric_source, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO banners (eyebrow, heading, subheading, button_text, button_link, image_url, image_url_mobile, mobile_fabric_source, device, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
-          b.eyebrow || null, b.heading, b.subheading || null,
+          b.eyebrow || null, b.heading || '', b.subheading || null,
           b.button_text || null, b.button_link || null, b.image_url || null, b.image_url_mobile || null,
-          b.mobile_fabric_source || null, Number(b.sort_order) || 0
+          b.mobile_fabric_source || null, bannerDevice(b.device), Number(b.sort_order) || 0
         ).run();
         return json({ success: true });
       } catch (err) {
@@ -657,14 +927,17 @@ export default {
     if (path === '/api/admin/banners' && method === 'PATCH') {
       try {
         const b = await request.json();
-        if (!b.id || !b.heading) return json({ error: 'Missing id or heading' }, 400);
+        if (!b.id) return json({ error: 'Missing id' }, 400);
+        if (!b.heading && !b.image_url && !b.image_url_mobile && !b.mobile_fabric_source) {
+          return json({ error: 'Add a heading or a banner image' }, 400);
+        }
         await env.DB.prepare(
-          `UPDATE banners SET eyebrow=?, heading=?, subheading=?, button_text=?, button_link=?, image_url=?, image_url_mobile=?, mobile_fabric_source=?, sort_order=?, is_active=?
+          `UPDATE banners SET eyebrow=?, heading=?, subheading=?, button_text=?, button_link=?, image_url=?, image_url_mobile=?, mobile_fabric_source=?, device=?, sort_order=?, is_active=?
            WHERE id=?`
         ).bind(
-          b.eyebrow || null, b.heading, b.subheading || null,
+          b.eyebrow || null, b.heading || '', b.subheading || null,
           b.button_text || null, b.button_link || null, b.image_url || null, b.image_url_mobile || null,
-          b.mobile_fabric_source || null, Number(b.sort_order) || 0,
+          b.mobile_fabric_source || null, bannerDevice(b.device), Number(b.sort_order) || 0,
           b.is_active === false ? 0 : 1, b.id
         ).run();
         return json({ success: true });
@@ -1101,12 +1374,28 @@ export default {
 
     if (path === '/api/order' && method === 'POST') {
       try {
+        await ensureSchema(env);
         const body = await request.json();
         const { customer_name, phone, address, city, items, discount_code } = body;
 
         if (!customer_name || !phone || !address || !city || !items || !items.length) {
           return json({ error: 'Missing required fields' }, 400);
         }
+
+        // Cash on delivery only works if the number is reachable.
+        const cleanPhone = normalisePhone(phone);
+        if (!cleanPhone) {
+          return json({ error: 'Please enter a valid Pakistani mobile number, e.g. 0300 1234567' }, 400);
+        }
+        if (String(address).trim().length < 10) {
+          return json({ error: 'Please enter a complete address so the courier can find you' }, 400);
+        }
+
+        // Same number, same total, within 10 minutes = a double tap, not a
+        // second order. Return the first one instead of booking twice.
+        const dupe = await env.DB.prepare(
+          "SELECT id FROM orders WHERE phone = ? AND created_at > datetime('now', '-10 minutes') ORDER BY id DESC LIMIT 1"
+        ).bind(cleanPhone).first();
 
         // Always recompute the total server-side — never trust a client-sent total
         let subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
@@ -1127,12 +1416,28 @@ export default {
 
         const total = Math.max(0, subtotal - discountAmount);
 
-        await env.DB.prepare(
-          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
-        ).bind(customer_name, phone, address, city, JSON.stringify(items), total, appliedCode, discountAmount).run();
+        if (dupe) {
+          const prev = await env.DB.prepare('SELECT total, items_json FROM orders WHERE id = ?').bind(dupe.id).first();
+          if (prev && prev.total === total && prev.items_json === JSON.stringify(items)) {
+            return json({ success: true, total, discount_amount: discountAmount, duplicate: true });
+          }
+        }
 
-        ctx.waitUntil(notifyNewOrder({ customer_name, phone, address, city, items, total }, env));
+        // Flag for the admin: this number has refused deliveries before.
+        let riskNote = null;
+        try {
+          const h = await env.DB.prepare(
+            "SELECT COUNT(*) AS n, SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS c FROM orders WHERE phone = ?"
+          ).bind(cleanPhone).first();
+          if (h && h.c > 0) riskNote = `${h.c} of ${h.n} previous orders cancelled`;
+        } catch (e) { /* non-fatal */ }
+
+        await env.DB.prepare(
+          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status, risk_note)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+        ).bind(customer_name, cleanPhone, address, city, JSON.stringify(items), total, appliedCode, discountAmount, riskNote).run();
+
+        ctx.waitUntil(notifyNewOrder({ customer_name, phone: cleanPhone, address, city, items, total, risk_note: riskNote }, env));
 
         return json({ success: true, total, discount_amount: discountAmount });
       } catch (err) {
