@@ -62,6 +62,17 @@ function unauthorized() {
 }
 
 // "Lawn, dhanak ,Karandi" -> "lawn,dhanak,karandi"
+/* The columns a product CARD needs — and nothing else.
+   `SELECT *` was shipping every product's full description (2 KB of
+   pasted HTML each) and its whole gallery list to every grid, so a
+   category page downloaded well over a megabyte of JSON to render
+   photos, names and prices. The product page still reads the full row
+   for the one product it shows. */
+const CARD_COLS = [
+  'p.id', 'p.name', 'p.slug', 'p.fabric', 'p.price', 'p.sale_price',
+  'p.image_url', 'p.image_url_2', 'p.stock', 'p.sizes', 'p.sort_order'
+].join(', ');
+
 // tabIds: hand-picked assignments to include. fabrics: fabric names to match.
 // allIfEmpty: when neither is configured, return the whole catalogue.
 async function productsInScope(env, tabIds, fabrics, allIfEmpty) {
@@ -69,7 +80,7 @@ async function productsInScope(env, tabIds, fabrics, allIfEmpty) {
   if (!tabIds.length && !fabrics.length) {
     if (!allIfEmpty) return [];
     const { results } = await env.DB
-      .prepare(`SELECT p.* FROM products p WHERE p.is_active = 1 ${order}`).all();
+      .prepare(`SELECT ${CARD_COLS} FROM products p WHERE p.is_active = 1 ${order}`).all();
     return results;
   }
   const conds = [], binds = [];
@@ -82,14 +93,38 @@ async function productsInScope(env, tabIds, fabrics, allIfEmpty) {
     binds.push(...fabrics);
   }
   const { results } = await env.DB.prepare(
-    `SELECT p.* FROM products p WHERE p.is_active = 1 AND (${conds.join(' OR ')}) ${order}`
+    `SELECT ${CARD_COLS} FROM products p WHERE p.is_active = 1 AND (${conds.join(' OR ')}) ${order}`
   ).bind(...binds).all();
   return results;
 }
 
+/* ============================================================
+   SCHEMA MIGRATIONS
+   This used to run on every request that touched the database,
+   including every storefront product load. It fired nine
+   "ALTER TABLE … ADD COLUMN" statements of which eight always
+   failed (the columns were added weeks ago) — but each failure
+   was still a full round trip to D1, in sequence, before the
+   product query could even start. Cloudflare evicts idle
+   isolates constantly, so a large share of visitors paid for all
+   nine.
+
+   Now: one cheap version read decides whether anything needs
+   doing, and storefront reads never wait for it at all — they
+   hand it to ctx.waitUntil and answer immediately.
+   ============================================================ */
+const SCHEMA_VERSION = 4;
 let SCHEMA_READY = false;
-async function ensureSchema(env) {
-  if (SCHEMA_READY) return;
+let SCHEMA_RUNNING = null;
+
+async function runMigrations(env) {
+  try {
+    const row = await env.DB
+      .prepare("SELECT value FROM site_settings WHERE key = 'schema_version'")
+      .first();
+    if (Number(row && row.value) >= SCHEMA_VERSION) { SCHEMA_READY = true; return; }
+  } catch (e) { /* site_settings not there yet — fall through and migrate */ }
+
   const migrations = [
     "ALTER TABLE nav_tabs ADD COLUMN fabrics TEXT",
     "ALTER TABLE nav_tabs ADD COLUMN show_in_topbar INTEGER NOT NULL DEFAULT 1",
@@ -110,12 +145,61 @@ async function ensureSchema(env) {
        is_approved INTEGER NOT NULL DEFAULT 0,
        sort_order INTEGER NOT NULL DEFAULT 0,
        created_at TEXT DEFAULT (datetime('now'))
-     )`
+     )`,
+    "CREATE TABLE IF NOT EXISTS site_settings (key TEXT PRIMARY KEY, value TEXT)",
+
+    /* Indexes. There were none at all, so every category page read every
+       row of products, re-read the whole tab-assignment table for each
+       one, then sorted the lot in memory — getting linearly slower with
+       every product added. The two expression indexes matter because the
+       queries compare LOWER(TRIM(fabric)), which a plain column index
+       cannot serve. */
+    "CREATE INDEX IF NOT EXISTS idx_products_active_sort ON products(is_active, sort_order, id)",
+    "CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug)",
+    "CREATE INDEX IF NOT EXISTS idx_products_fabric_norm ON products(LOWER(TRIM(fabric)))",
+    "CREATE INDEX IF NOT EXISTS idx_products_fabric_lower ON products(LOWER(fabric))",
+    "CREATE INDEX IF NOT EXISTS idx_ntp_tab ON nav_tab_products(tab_id, product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_ntp_product ON nav_tab_products(product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_navtabs_active ON nav_tabs(is_active, gender, sort_order)",
+    "CREATE INDEX IF NOT EXISTS idx_reviews_approved ON reviews(is_approved, product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at)"
   ];
   for (const sql of migrations) {
     try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
   }
+  try {
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO site_settings (key, value) VALUES ('schema_version', ?)"
+    ).bind(String(SCHEMA_VERSION)).run();
+  } catch (e) {}
   SCHEMA_READY = true;
+}
+
+/* Pass ctx from a storefront read and it returns instantly, letting the
+   migration finish in the background. Admin and order paths omit ctx and
+   wait, because correctness there matters more than a few milliseconds. */
+function ensureSchema(env, ctx) {
+  if (SCHEMA_READY) return Promise.resolve();
+  if (!SCHEMA_RUNNING) SCHEMA_RUNNING = runMigrations(env).catch(() => { SCHEMA_RUNNING = null; });
+  if (ctx) { ctx.waitUntil(SCHEMA_RUNNING); return Promise.resolve(); }
+  return SCHEMA_RUNNING;
+}
+
+/* raw.githubusercontent.com sends Cache-Control: max-age=300 and is not a
+   CDN. jsDelivr serves the same repository from a real edge network. Used
+   when importing so the fetch itself is fast. */
+const GH_RAW_PREFIX = 'https://raw.githubusercontent.com/';
+function cdnRewriteServer(u) {
+  if (typeof u !== 'string' || u.indexOf(GH_RAW_PREFIX) !== 0) return u;
+  const m = u.slice(GH_RAW_PREFIX.length).match(/^([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/);
+  return m ? `https://cdn.jsdelivr.net/gh/${m[1]}/${m[2]}@${m[3]}/${m[4]}` : u;
+}
+
+// Stable short key from a source URL, so importing twice overwrites.
+function hashUrl(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36) + '-' + (s.length.toString(36));
 }
 
 // Pakistani mobile numbers, normalised to 03XXXXXXXXX.
@@ -338,6 +422,64 @@ export default {
       }
     }
 
+    /* ---------------- Import outside photos into our own bucket ----------------
+       The gents photos were served from raw.githubusercontent.com and the
+       ladies photos from a Shopify CDN. Neither can be edge-cached by us, the
+       GitHub one is re-downloaded by every browser every five minutes, and
+       both leave the catalogue dependent on somebody else's hosting staying
+       up. This pulls a batch of them into R2, where they get a one-year
+       immutable cache, our own edge caching, and \u2014 once the small-copy
+       builder is run \u2014 600px grid versions.
+
+       Called in small batches by the admin page so progress is visible and no
+       single request runs long. Idempotent: the key is derived from the source
+       URL, so a re-run overwrites rather than duplicating. */
+    if (path === '/api/admin/import-images' && method === 'POST') {
+      try {
+        const { urls } = await request.json();
+        if (!Array.isArray(urls) || !urls.length) return json({ error: 'No urls given' }, 400);
+
+        const map = {}, failed = [];
+        for (const src of urls.slice(0, 6)) {
+          if (typeof src !== 'string' || src.indexOf('http') !== 0) { failed.push(src); continue; }
+          try {
+            // Fetch through jsDelivr for GitHub-hosted files: same bytes, far faster.
+            const res = await fetch(cdnRewriteServer(src), { cf: { cacheTtl: 300 } });
+            if (!res.ok) { failed.push(src); continue; }
+            const buf = await res.arrayBuffer();
+            if (!buf.byteLength) { failed.push(src); continue; }
+
+            const type = res.headers.get('content-type') || 'image/jpeg';
+            const ext = (type.match(/image\/(jpeg|jpg|png|webp|gif|avif)/i)?.[1] || 'jpg')
+              .toLowerCase().replace('jpeg', 'jpg');
+            const key = `uploads/imp-${hashUrl(src)}.${ext}`;
+
+            await env.IMAGES.put(key, buf, { httpMetadata: { contentType: type } });
+            map[src] = '/' + key;
+          } catch (e) { failed.push(src); }
+        }
+
+        // Point the catalogue at the new copies. REPLACE is a no-op on rows
+        // that don't contain the old URL, so this is safe to run broadly.
+        const stmts = [];
+        for (const [src, dest] of Object.entries(map)) {
+          stmts.push(env.DB.prepare(
+            `UPDATE products SET
+               image_url   = REPLACE(image_url, ?, ?),
+               image_url_2 = REPLACE(image_url_2, ?, ?),
+               images_json = REPLACE(images_json, ?, ?)
+             WHERE image_url LIKE ? OR image_url_2 LIKE ? OR images_json LIKE ?`
+          ).bind(src, dest, src, dest, src, dest, '%' + src + '%', '%' + src + '%', '%' + src + '%'));
+        }
+        if (stmts.length) await env.DB.batch(stmts);
+
+        ctx.waitUntil(purgeApiCache(url.origin));
+        return json({ imported: Object.keys(map).length, failed: failed.length, map });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     if (path === '/api/admin/upload' && method === 'POST') {
       try {
         const formData = await request.formData();
@@ -454,7 +596,7 @@ export default {
     // Public: approved reviews for one product (or the whole store when no id).
     if (path === '/api/reviews' && method === 'GET') {
       try {
-        await ensureSchema(env);
+        await ensureSchema(env, ctx);
         const pid = url.searchParams.get('product_id');
         const q = pid
           ? env.DB.prepare('SELECT id, product_id, customer_name, city, rating, body, created_at FROM reviews WHERE is_approved = 1 AND product_id = ? ORDER BY sort_order ASC, id DESC').bind(pid)
@@ -471,7 +613,7 @@ export default {
     // Public: per-product rating totals, for stars on product cards.
     if (path === '/api/reviews-summary' && method === 'GET') {
       try {
-        await ensureSchema(env);
+        await ensureSchema(env, ctx);
         const { results } = await env.DB.prepare(
           'SELECT product_id, COUNT(*) AS count, AVG(rating) AS average FROM reviews WHERE is_approved = 1 AND product_id IS NOT NULL GROUP BY product_id'
         ).all();
@@ -1191,9 +1333,9 @@ export default {
        stock was added. Now it is one call. */
     if (path === '/api/bootstrap' && method === 'GET') {
       try {
-        await ensureSchema(env);
+        await ensureSchema(env, ctx);
         const rs = await env.DB.batch([
-          env.DB.prepare('SELECT * FROM products WHERE is_active = 1 ORDER BY sort_order ASC, id DESC'),
+          env.DB.prepare(`SELECT ${CARD_COLS} FROM products p WHERE p.is_active = 1 ORDER BY p.sort_order ASC, p.id DESC`),
           env.DB.prepare('SELECT * FROM banners WHERE is_active = 1 ORDER BY sort_order ASC'),
           env.DB.prepare('SELECT * FROM fabric_categories ORDER BY sort_order ASC'),
           env.DB.prepare('SELECT key, value FROM site_settings'),
@@ -1222,7 +1364,7 @@ export default {
 
     if (path === '/api/products' && method === 'GET') {
       try {
-        await ensureSchema(env);
+        await ensureSchema(env, ctx);
 
         /* A category tab fills itself two ways, and we return the union:
            1. products the admin ticked for it (nav_tab_products), and
@@ -1256,13 +1398,13 @@ export default {
         const fabric = url.searchParams.get('fabric');
         if (fabric) {
           const { results } = await env.DB
-            .prepare('SELECT * FROM products WHERE is_active = 1 AND LOWER(fabric) = LOWER(?) ORDER BY sort_order ASC, id DESC')
+            .prepare(`SELECT ${CARD_COLS} FROM products p WHERE p.is_active = 1 AND LOWER(p.fabric) = LOWER(?) ORDER BY p.sort_order ASC, p.id DESC`)
             .bind(fabric)
             .all();
           return json(results);
         }
         const { results } = await env.DB
-          .prepare('SELECT * FROM products WHERE is_active = 1 ORDER BY sort_order ASC, id DESC')
+          .prepare(`SELECT ${CARD_COLS} FROM products p WHERE p.is_active = 1 ORDER BY p.sort_order ASC, p.id DESC`)
           .all();
         return json(results);
       } catch (err) {
@@ -1273,7 +1415,7 @@ export default {
     /* ---------------- Nav tabs (hamburger menu: Men / Women categories) ---------------- */
     if (path === '/api/nav-tabs' && method === 'GET') {
       try {
-        await ensureSchema(env);
+        await ensureSchema(env, ctx);
         const { results } = await env.DB
           .prepare('SELECT * FROM nav_tabs WHERE is_active = 1 ORDER BY gender ASC, sort_order ASC')
           .all();
