@@ -203,19 +203,57 @@ function money(n) {
 }
 
 /* ============================================================
-   GRID THUMBNAILS
-   A product card is ~180px wide on a phone, so downloading the
-   1400px master for every card is pure waste — that is what made
-   the catalogue feel slow once the gents photos went up. Uploads
-   now also write a 600px "<name>.thumb.<ext>" variant beside the
-   master, and the Worker serves the master when a thumbnail does
-   not exist yet, so this is safe on every existing photo too.
+   PHOTO URLS
+   Product photos live in three places and each needs different
+   handling. This is the single biggest lever on browsing speed.
+
+   1. Our own bucket (/uploads/…) — a 600px ".thumb" copy sits
+      beside every master; the Worker falls back to the master if
+      one was never built, so asking for it is always safe.
+
+   2. raw.githubusercontent.com — where the gents photos are. It
+      is a source-code service, not a CDN: it sends
+      Cache-Control: max-age=300, so a browser throws the photo
+      away after FIVE MINUTES and re-downloads it, and it caps
+      parallel downloads. jsDelivr serves the exact same repo
+      from a real edge network with a seven-day cache, so we
+      rewrite those URLs on the way out. Same file, same folder,
+      no re-upload.
+
+   3. cdn.shopify.com — where the ladies photos are. Already a
+      proper CDN with a one-year cache, and it will resize on
+      request: adding ?width=600 turned a 138 KB photo into an
+      87 KB one. Grids ask for the size they actually display.
    ============================================================ */
-function thumbUrl(url) {
-  if (!url || typeof url !== 'string') return url;
-  if (url.indexOf('/uploads/') !== 0) return url;
-  return url.replace(/(\.[a-z0-9]{2,5})$/i, '.thumb$1');
+const GH_RAW = 'https://raw.githubusercontent.com/';
+
+function cdnRewrite(url) {
+  if (url.indexOf(GH_RAW) !== 0) return url;
+  const m = url.slice(GH_RAW.length).match(/^([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/);
+  return m ? `https://cdn.jsdelivr.net/gh/${m[1]}/${m[2]}@${m[3]}/${m[4]}` : url;
 }
+
+// width: the pixel width the photo is actually displayed at, or 0 for full size.
+function imgUrl(url, width) {
+  if (!url || typeof url !== 'string') return url;
+
+  if (url.indexOf('/uploads/') === 0) {
+    return (width && width <= 600)
+      ? url.replace(/(\.[a-z0-9]{2,5})$/i, '.thumb$1')
+      : url;
+  }
+  if (width && url.indexOf('cdn.shopify.com') > -1) {
+    return url + (url.indexOf('?') > -1 ? '&' : '?') + 'width=' + width;
+  }
+  return cdnRewrite(url);
+}
+
+// Grid and thumbnail contexts. Kept under the old name so every existing
+// call site benefits without being touched.
+function thumbUrl(url) { return imgUrl(url, 600); }
+
+// Product-page gallery: big enough for a full-width phone photo at 2x.
+function fullUrl(url) { return imgUrl(url, 1200); }
 
 function ttEvent(name, params) {
   if (window.ttq) {
@@ -729,8 +767,7 @@ async function runSearch(q) {
   const products = await getProducts();
   const matches = products.filter(p =>
     p.name.toLowerCase().includes(query) ||
-    (p.fabric || '').toLowerCase().includes(query) ||
-    (p.description || '').toLowerCase().includes(query)
+    (p.fabric || '').toLowerCase().includes(query)
   ).slice(0, 12);
 
   if (matches.length === 0) {

@@ -40,11 +40,28 @@
 
   <div id="tab-products" style="display:none;">
     <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:20px;">
-      <h3 class="display" style="font-size:17px; margin:0 0 4px;">Browsing speed — photo tune-up</h3>
+      <h3 class="display" style="font-size:17px; margin:0 0 4px;">Step 1 — Bring photos into your own store</h3>
       <p style="font-size:12.5px; color:var(--charcoal-soft); margin:0 0 10px; max-width:640px;">
-        Product grids show cards about 180px wide, so they now load a small copy of each
+        Gents photos are being served from GitHub, which tells every browser to throw them
+        away after five minutes — so visitors re-download them again and again. Ladies photos
+        come from a Shopify address you don't control. This copies them into your own image
+        store, where they are kept by the browser for a year and served from Cloudflare's
+        network. Run it once; it picks up where it left off if you close the tab, and it
+        skips anything already moved.
+      </p>
+      <button type="button" class="btn" id="import-images-btn">Move outside photos into my store</button>
+      <label style="display:block; font-size:12px; color:var(--charcoal-soft); margin-top:8px;">
+        <input type="checkbox" id="import-gallery-too"> Include the extra gallery photos as well (slower — many more files)
+      </label>
+      <div id="import-images-status" style="font-size:12.5px; margin-top:8px; color:var(--ink-green);"></div>
+    </div>
+
+    <div style="border:1px solid var(--line); padding:14px 16px; margin-bottom:20px;">
+      <h3 class="display" style="font-size:17px; margin:0 0 4px;">Step 2 — Build the small grid copies</h3>
+      <p style="font-size:12.5px; color:var(--charcoal-soft); margin:0 0 10px; max-width:640px;">
+        Product grids show cards about 180px wide, so they load a small copy of each
         photo instead of the full-size one. New uploads build that copy automatically.
-        Photos already in the store need it built once — press this and leave the tab open.
+        Run this after Step 1 finishes and leave the tab open.
         Safe to run any time; photos that already have a small copy are skipped.
       </p>
       <button type="button" class="btn" id="build-thumbs-btn">Build small copies for existing photos</button>
@@ -724,7 +741,7 @@ async function uploadFiles(fileList, preset = 'product') {
 async function buildMissingThumbnails(statusEl) {
   const say = (t) => { if (statusEl) statusEl.textContent = t; };
   say('Reading catalogue…');
-  const products = await fetch('/api/products').then(r => r.json());
+  const products = await fetch('/api/admin/products').then(r => r.json());
   const urls = new Set();
   products.forEach(p => {
     [p.image_url, p.image_url_2].forEach(u => { if (u) urls.add(u); });
@@ -757,6 +774,60 @@ document.getElementById('build-thumbs-btn')?.addEventListener('click', async (e)
   const status = document.getElementById('build-thumbs-status');
   btn.disabled = true;
   try { await buildMissingThumbnails(status); }
+  catch (err) { status.textContent = 'Failed: ' + err.message; }
+  btn.disabled = false;
+});
+
+/* ---------------- Move outside photos into our own bucket ----------------
+   Sends the URLs in small batches; the Worker fetches each one, stores it in
+   R2 and rewrites the catalogue to point at the copy. Batched so progress is
+   visible and no single request runs long. Re-running is harmless. */
+async function importOutsidePhotos(statusEl, includeGallery) {
+  const say = (t) => { if (statusEl) statusEl.textContent = t; };
+  say('Reading catalogue…');
+  const products = await fetch('/api/admin/products').then(r => r.json());
+
+  const urls = new Set();
+  products.forEach(p => {
+    [p.image_url, p.image_url_2].forEach(u => { if (u) urls.add(u); });
+    if (includeGallery) {
+      try { (JSON.parse(p.images_json || '[]') || []).forEach(u => { if (u) urls.add(u); }); } catch (e) {}
+    }
+  });
+  const list = [...urls].filter(u => typeof u === 'string' && u.indexOf('http') === 0);
+
+  if (!list.length) {
+    say('Nothing to move — every photo is already in your own store.');
+    return;
+  }
+
+  let moved = 0, failed = 0;
+  const BATCH = 6;
+  for (let i = 0; i < list.length; i += BATCH) {
+    const batch = list.slice(i, i + BATCH);
+    say(`Moving ${Math.min(i + BATCH, list.length)} of ${list.length} — ${moved} done${failed ? `, ${failed} failed` : ''}`);
+    try {
+      const res = await fetch('/api/admin/import-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: batch })
+      });
+      const data = await res.json();
+      moved += data.imported || 0;
+      failed += data.failed || 0;
+    } catch (e) {
+      failed += batch.length;
+    }
+  }
+  say(`Done — ${moved} photos moved into your store${failed ? `, ${failed} failed` : ''}. Now run Step 2.`);
+}
+
+document.getElementById('import-images-btn')?.addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const status = document.getElementById('import-images-status');
+  const gallery = document.getElementById('import-gallery-too')?.checked;
+  btn.disabled = true;
+  try { await importOutsidePhotos(status, gallery); }
   catch (err) { status.textContent = 'Failed: ' + err.message; }
   btn.disabled = false;
 });
