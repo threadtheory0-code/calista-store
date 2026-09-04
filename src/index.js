@@ -446,15 +446,26 @@ export default {
             continue;
           }
           try {
+            const type0 = 'image/jpeg';
+            const guess = (src.split('?')[0].match(/\.(jpe?g|png|webp|gif|avif)$/i) || [])[1];
+            const ext0 = (guess || 'jpg').toLowerCase().replace('jpeg', 'jpg');
+            const key0 = `uploads/imp-${hashUrl(src)}.${ext0}`;
+
+            /* Already pulled in on an earlier run? Skip the download and just
+               repoint. The first pass stored 284 photos but repointed none, so
+               a re-run must not re-fetch them all. */
+            const existing = await env.IMAGES.head(key0);
+            if (existing) { map[src] = '/' + key0; continue; }
+
             // Fetch through jsDelivr for GitHub-hosted files: same bytes, far faster.
             const res = await fetch(cdnRewriteServer(src));
             if (!res.ok) { problems.push(src.slice(0, 50) + ' → HTTP ' + res.status); continue; }
             const buf = await res.arrayBuffer();
             if (!buf.byteLength) { problems.push(src.slice(0, 50) + ' → empty file'); continue; }
 
-            const type = res.headers.get('content-type') || 'image/jpeg';
+            const type = res.headers.get('content-type') || type0;
             const m = type.match(/image\/(jpeg|jpg|png|webp|gif|avif)/i);
-            const ext = (m ? m[1] : 'jpg').toLowerCase().replace('jpeg', 'jpg');
+            const ext = (m ? m[1] : ext0).toLowerCase().replace('jpeg', 'jpg');
             const key = `uploads/imp-${hashUrl(src)}.${ext}`;
 
             await env.IMAGES.put(key, buf, { httpMetadata: { contentType: type } });
@@ -464,18 +475,22 @@ export default {
           }
         }
 
-        /* Point the catalogue at the new copies. Done one URL at a time and
-           column by column, because a single unusable column (images_json is
-           not present on every install) must not throw away the whole batch
-           after the photos are already stored. */
+        /* Point the catalogue at the new copies. Matched with instr(), NOT
+           LIKE: the photo filenames are percent-encoded ('%20' for each
+           space), and '%' is a LIKE wildcard — so every URL became a pattern
+           with dozens of wildcards and SQLite rejected it outright with
+           "LIKE or GLOB pattern too complex", which is why the first pass
+           stored the photos but repointed nothing. instr() does a plain
+           substring match with no metacharacters. Still column by column, so
+           one unusable column cannot discard the whole batch. */
         let repointed = 0;
         const dbProblems = [];
         for (const [src, dest] of Object.entries(map)) {
           for (const col of ['image_url', 'image_url_2', 'images_json']) {
             try {
               const r = await env.DB.prepare(
-                `UPDATE products SET ${col} = REPLACE(${col}, ?, ?) WHERE ${col} LIKE ?`
-              ).bind(src, dest, '%' + src + '%').run();
+                `UPDATE products SET ${col} = REPLACE(${col}, ?, ?) WHERE instr(${col}, ?) > 0`
+              ).bind(src, dest, src).run();
               repointed += (r.meta && r.meta.changes) || 0;
             } catch (e) {
               if (dbProblems.length < 3) dbProblems.push(col + ' → ' + e.message);
