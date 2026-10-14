@@ -113,7 +113,7 @@ async function productsInScope(env, tabIds, fabrics, allIfEmpty) {
    doing, and storefront reads never wait for it at all — they
    hand it to ctx.waitUntil and answer immediately.
    ============================================================ */
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 let SCHEMA_READY = false;
 let SCHEMA_RUNNING = null;
 
@@ -136,6 +136,8 @@ async function runMigrations(env) {
     "ALTER TABLE orders ADD COLUMN risk_note TEXT",
     // Optional colour override for "Frequently bought together".
     "ALTER TABLE products ADD COLUMN color TEXT",
+    // 1 = colour was read from the photo by Admin, 0 = typed by hand.
+    "ALTER TABLE products ADD COLUMN color_auto INTEGER NOT NULL DEFAULT 0",
     `CREATE TABLE IF NOT EXISTS reviews (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        product_id INTEGER,
@@ -216,7 +218,21 @@ const COLOR_TERMS = Object.entries(COLOR_FAMILIES)
   .flatMap(([fam, words]) => words.map(w => ({ w, fam })))
   .sort((a, b) => b.w.length - a.w.length); // "navy blue" before "blue"
 const NEUTRAL_FAMS = new Set(['black', 'white', 'grey', 'beige']);
-const ACCESSORY_RE = /\b(bags?|clutch|pouch|purse|tote|wallet|shawls?|stole|dupatta|scarf|hijab|khussa|shoes?|sandals?|slippers?|chappal|jewell?ery|jewelry|earrings?|bangles?|necklace|cap|topi|waistcoat|belt)\b/i;
+const ACCESSORY_RE = /\b(hand ?bags?|bags?|clutch(es)?|pouch(es)?|purses?|totes?|crossbody|sling|wallets?|card ?holders?|key ?rings?|key ?chains?|bag ?charms?|shawls?|stole|dupatta|scarf|hijab|khussa|shoes?|sandals?|slippers?|chappal|jewell?ery|jewelry|earrings?|bangles?|necklace|cap|topi|waistcoat|belt)\b/i;
+
+// The three add-ons a ladies suit is sold with.
+const TYPE_RES = {
+  keyring: /\b(key ?rings?|key ?chains?|bag ?charms?)\b/i,
+  wallet: /\b(wallets?|card ?holders?)\b/i,
+  bag: /\b(hand ?bags?|bags?|totes?|clutch(es)?|pouch(es)?|purses?|crossbody|sling)\b/i
+};
+function accessoryType(p) {
+  const t = `${p.name} ${p.fabric || ''}`;
+  if (TYPE_RES.keyring.test(t)) return 'keyring'; // before bag: "bag charm"
+  if (TYPE_RES.wallet.test(t)) return 'wallet';
+  if (TYPE_RES.bag.test(t)) return 'bag';
+  return ACCESSORY_RE.test(t) ? 'other' : null;
+}
 
 function stripTags(s) { return String(s || '').replace(/<[^>]*>/g, ' '); }
 function titleCase(s) { return String(s || '').replace(/\b[a-z]/g, c => c.toUpperCase()); }
@@ -234,20 +250,37 @@ function detectColors(text) {
   return out.sort((a, b) => a.at - b.at);
 }
 
-function productColors(p) {
-  const own = String(p.color || '').trim();
-  if (own) {
-    const found = detectColors(own);
-    if (found.length) return found;
-    return own.toLowerCase().split(',').map(s => s.trim()).filter(Boolean).map(n => ({ name: n, fam: n }));
-  }
+const AMBIGUOUS_SHADES = new Set(['rose', 'sky', 'coral', 'gold', 'golden', 'jet', 'ash', 'sand', 'tan', 'lime', 'cherry', 'mint', 'pearl', 'smoke', 'steel', 'copper', 'cinnamon', 'walnut', 'chestnut', 'peacock', 'plum', 'lemon', 'onion', 'salmon', 'brick', 'moss', 'sage', 'emerald', 'blush', 'canary', 'haldi', 'milky', 'mushroom', 'oatmeal', 'champagne', 'denim']);
+
+/* Where a product's colour comes from, most reliable first:
+   typed in Admin → a colour word in the name → read from the photo
+   → a "Colour: …" line in the description → a colour word early in
+   the description. */
+function parseColorField(v) {
+  const own = String(v || '').trim();
+  if (!own) return [];
+  const found = detectColors(own);
+  if (found.length) return found;
+  return own.toLowerCase().split(',').map(s => s.trim()).filter(Boolean).map(n => ({ name: n, fam: n }));
+}
+
+function colorInfo(p) {
+  const field = parseColorField(p.color);
+  const auto = Number(p.color_auto) === 1;
+  if (field.length && !auto) return { colors: field, source: 'manual' };
   let c = detectColors(p.name);
-  if (c.length) return c;
+  // "Rose", "Sky", "Coral"… are as often design names as colours — trust the photo over them.
+  if (c.length && field.length && c.every(x => AMBIGUOUS_SHADES.has(x.name))) return { colors: field, source: 'photo' };
+  if (c.length) return { colors: c, source: 'name' };
+  if (field.length) return { colors: field, source: 'photo' };
   const desc = stripTags(p.description);
   const line = desc.match(/colou?r\s*[:\-\u2013]\s*([^\n.,;|]{2,40})/i);
-  if (line) { c = detectColors(line[1]); if (c.length) return c; }
-  return detectColors(desc.slice(0, 300));
+  if (line) { c = detectColors(line[1]); if (c.length) return { colors: c, source: 'description' }; }
+  c = detectColors(desc.slice(0, 300));
+  return { colors: c, source: c.length ? 'description-guess' : null };
 }
+
+function productColors(p) { return colorInfo(p).colors; }
 
 // Who a product is for (women / men / all), from the menu tabs it is reachable through.
 async function audienceLookup(env) {
@@ -288,10 +321,11 @@ function sharesAudience(a, b) {
 const FBT_COLS = 'id, name, slug, fabric, price, sale_price, image_url, stock, sort_order, substr(description, 1, 600) AS description';
 
 async function readFbtRows(env) {
-  try {
-    return (await env.DB.prepare(`SELECT ${FBT_COLS}, color FROM products WHERE is_active = 1`).all()).results || [];
-  } catch (e) { // colour column not migrated yet
-    return (await env.DB.prepare(`SELECT ${FBT_COLS} FROM products WHERE is_active = 1`).all()).results || [];
+  const tries = [`${FBT_COLS}, color, color_auto`, `${FBT_COLS}, color`, FBT_COLS]; // columns not migrated yet
+  for (let i = 0; i < tries.length; i++) {
+    try {
+      return (await env.DB.prepare(`SELECT ${tries[i]} FROM products WHERE is_active = 1`).all()).results || [];
+    } catch (e) { if (i === tries.length - 1) throw e; }
   }
 }
 
@@ -300,13 +334,18 @@ async function boughtTogether(env, slug, limit = 3) {
   const me = rows.find(r => r.slug === slug);
   if (!me) return { color: null, items: [] };
   const mine = productColors(me);
-  if (!mine.length) return { color: null, items: [] };
 
   const audienceOf = await audienceLookup(env);
   const myAudience = audienceOf(me);
   const fab = (s) => String(s || '').trim().toLowerCase();
-  const isAcc = (p) => ACCESSORY_RE.test(`${p.name} ${p.fabric || ''}`);
-  const meAcc = isAcc(me);
+  const meType = accessoryType(me);
+  const menOnly = (a) => a.has('men') && !a.has('women') && !a.has('all');
+  const meMen = menOnly(myAudience);
+  /* A ladies suit (or one not yet in any menu tab) is sold with a bag,
+     a wallet and a keyring — those come first, one of each. */
+  const ladiesMode = !meType && !meMen;
+  if (!mine.length && !ladiesMode) return { color: null, items: [] };
+
   const myShades = new Set(mine.map(c => c.name));
   const myFams = new Set(mine.map(c => c.fam));
 
@@ -314,37 +353,57 @@ async function boughtTogether(env, slug, limit = 3) {
   for (const r of rows) {
     if (r.id === me.id) continue;
     if (r.stock !== null && r.stock !== undefined && Number(r.stock) <= 0) continue;
-    if (!sharesAudience(myAudience, audienceOf(r))) continue;
+    const theirAudience = audienceOf(r);
+    if (!sharesAudience(myAudience, theirAudience)) continue;
+    const type = accessoryType(r);
+    // Gents never see an accessory unless it is filed under a Men / All tab.
+    if (meMen && type && !(theirAudience.has('men') || theirAudience.has('all'))) continue;
+
     const theirs = productColors(r);
-    const acc = isAcc(r);
     const exact = theirs.find(c => myShades.has(c.name));
     const family = exact ? null : theirs.find(c => myFams.has(c.fam));
-    const neutral = (exact || family || !acc) ? null : theirs.find(c => NEUTRAL_FAMS.has(c.fam));
+    const neutral = (exact || family || !type) ? null : theirs.find(c => NEUTRAL_FAMS.has(c.fam));
     const hit = exact || family || neutral;
-    if (!hit) continue;
-    let score = exact ? 10 : family ? 6 : 2;
-    if (acc && !meAcc) score += 4;            // the matching bag / shawl
-    if (fab(r.fabric) !== fab(me.fabric)) score += 3; // complements, not a near-duplicate
-    scored.push({ r, score, match: hit.name });
+    let score;
+    if (exact) score = 10; else if (family) score = 6; else if (neutral) score = 2;
+    else if (ladiesMode && type === 'keyring') score = 1; // a keyring goes with any suit
+    else continue;
+    if (type && !meType) score += 4;
+    if (fab(r.fabric) !== fab(me.fabric)) score += 3;
+    scored.push({ r, score, type, match: hit ? hit.name : null });
   }
   scored.sort((a, b) => b.score - a.score || (a.r.sort_order || 0) - (b.r.sort_order || 0) || b.r.id - a.r.id);
 
-  // One per fabric first, so three Lawn suits never crowd out the bag.
-  const picked = [], seen = new Set();
-  for (const s of scored) {
-    if (picked.length >= limit) break;
-    if (seen.has(fab(s.r.fabric))) continue;
-    picked.push(s); seen.add(fab(s.r.fabric));
+  let picked = [];
+  if (ladiesMode) {
+    ['bag', 'wallet', 'keyring'].forEach(t => {
+      const best = scored.find(s => s.type === t);
+      if (best) picked.push(best);
+    });
+    for (const s of scored) {            // spare slot: another bag / accessory
+      if (picked.length >= limit) break;
+      if (s.type && !picked.includes(s)) picked.push(s);
+    }
   }
-  for (const s of scored) {
-    if (picked.length >= limit) break;
-    if (!picked.includes(s)) picked.push(s);
+  if (!picked.length) {
+    const usable = scored.filter(s => s.score > 1);
+    const seen = new Set();             // one per fabric first
+    for (const s of usable) {
+      if (picked.length >= limit) break;
+      if (seen.has(fab(s.r.fabric))) continue;
+      picked.push(s); seen.add(fab(s.r.fabric));
+    }
+    for (const s of usable) {
+      if (picked.length >= limit) break;
+      if (!picked.includes(s)) picked.push(s);
+    }
   }
   return {
-    color: titleCase(mine[0].name),
-    items: picked.map(({ r, match }) => ({
+    color: mine.length ? titleCase(mine[0].name) : null,
+    items: picked.slice(0, limit).map(({ r, match, type }) => ({
       id: r.id, name: r.name, slug: r.slug, fabric: r.fabric, price: r.price,
-      sale_price: r.sale_price, image_url: r.image_url, stock: r.stock, match: titleCase(match)
+      sale_price: r.sale_price, image_url: r.image_url, stock: r.stock,
+      type: type || null, match: match ? titleCase(match) : null
     }))
   };
 }
@@ -902,10 +961,40 @@ export default {
       try {
         await ensureSchema(env);
         const rows = await readFbtRows(env);
+        const audienceOf = await audienceLookup(env);
+        const imgs = {};
+        try {
+          const { results } = await env.DB.prepare('SELECT id, image_url FROM products WHERE is_active = 1').all();
+          (results || []).forEach(r => { imgs[r.id] = r.image_url; });
+        } catch (e) {}
         return json(rows.map(r => {
-          const c = productColors(r);
-          return { id: r.id, name: r.name, color: r.color || null, detected: c.map(x => titleCase(x.name)) };
+          const info = colorInfo(r);
+          return {
+            id: r.id, name: r.name, image_url: imgs[r.id] || null,
+            color: r.color || null, color_auto: Number(r.color_auto) === 1,
+            detected: info.colors.map(x => titleCase(x.name)), source: info.source,
+            type: accessoryType(r), audience: [...audienceOf(r)]
+          };
         }));
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    /* Save colours read from photos. Never touches a colour typed by hand
+       unless `force` is sent. */
+    if (path === '/api/admin/products/set-colors' && method === 'POST') {
+      try {
+        await ensureSchema(env);
+        const { updates, force } = await request.json();
+        if (!Array.isArray(updates) || !updates.length) return json({ error: 'No updates' }, 400);
+        const stmts = updates.slice(0, 100).map(u => env.DB.prepare(
+          force
+            ? 'UPDATE products SET color = ?, color_auto = 1 WHERE id = ?'
+            : "UPDATE products SET color = ?, color_auto = 1 WHERE id = ? AND (color IS NULL OR color = '' OR color_auto = 1)"
+        ).bind(String(u.color || '').trim() || null, Number(u.id)));
+        await env.DB.batch(stmts);
+        return json({ success: true, count: stmts.length });
       } catch (err) {
         return json({ error: err.message }, 500);
       }
@@ -922,13 +1011,13 @@ export default {
           return json({ error: 'Missing required fields (need at least one image)' }, 400);
         }
         await env.DB.prepare(
-          `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, color, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products))`
+          `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, color, color_auto, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products))`
         ).bind(
           p.name, p.slug, p.fabric || null, p.description || null,
           p.price, p.sale_price || null, imageUrl, imageUrl2,
           images.length ? JSON.stringify(images) : null, p.stock || 0,
-          (p.color || '').trim() || null
+          (p.color || '').trim() || null, p.color_auto ? 1 : 0
         ).run();
         return json({ success: true });
       } catch (err) {
@@ -960,7 +1049,8 @@ export default {
                price=excluded.price, sale_price=excluded.sale_price,
                image_url=excluded.image_url, image_url_2=excluded.image_url_2,
                images_json=excluded.images_json, stock=excluded.stock,
-               color=COALESCE(excluded.color, products.color)${hasPosition ? ', sort_order=excluded.sort_order' : ''}`
+               color=COALESCE(excluded.color, products.color),
+               color_auto=CASE WHEN excluded.color IS NULL THEN products.color_auto ELSE 0 END${hasPosition ? ', sort_order=excluded.sort_order' : ''}`
           ).bind(
             ...[
               p.name, p.slug, p.fabric || null, p.description || null,
@@ -982,7 +1072,14 @@ export default {
       try {
         const { ids, field, value } = await request.json();
         const allowedFields = ['in_new_arrivals', 'in_sale_tab', 'in_lawn_tab', 'fabric', 'is_active', 'color'];
-        if (field === 'color') await ensureSchema(env);
+        if (field === 'color') {
+          await ensureSchema(env);
+          // Typed by hand: wins over the photo and is never overwritten by it.
+          await env.DB.batch(ids.map(id => env.DB.prepare(
+            'UPDATE products SET color = ?, color_auto = 0 WHERE id = ?'
+          ).bind(value ? String(value).trim() : null, id)));
+          return json({ success: true, count: ids.length });
+        }
         if (!Array.isArray(ids) || ids.length === 0 || !allowedFields.includes(field)) {
           return json({ error: 'Invalid request' }, 400);
         }
