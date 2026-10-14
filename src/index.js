@@ -113,7 +113,7 @@ async function productsInScope(env, tabIds, fabrics, allIfEmpty) {
    doing, and storefront reads never wait for it at all — they
    hand it to ctx.waitUntil and answer immediately.
    ============================================================ */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 let SCHEMA_READY = false;
 let SCHEMA_RUNNING = null;
 
@@ -134,6 +134,8 @@ async function runMigrations(env) {
     "ALTER TABLE banners ADD COLUMN device TEXT NOT NULL DEFAULT 'both'",
     "ALTER TABLE orders ADD COLUMN verified_at TEXT",
     "ALTER TABLE orders ADD COLUMN risk_note TEXT",
+    // Optional colour override for "Frequently bought together".
+    "ALTER TABLE products ADD COLUMN color TEXT",
     `CREATE TABLE IF NOT EXISTS reviews (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        product_id INTEGER,
@@ -183,6 +185,168 @@ function ensureSchema(env, ctx) {
   if (!SCHEMA_RUNNING) SCHEMA_RUNNING = runMigrations(env).catch(() => { SCHEMA_RUNNING = null; });
   if (ctx) { ctx.waitUntil(SCHEMA_RUNNING); return Promise.resolve(); }
   return SCHEMA_RUNNING;
+}
+
+/* ============================================================
+   FREQUENTLY BOUGHT TOGETHER
+   Matches by colour. A product's colour is, in order: the Colour
+   field in Admin; any colour word in its name ("Maroon Boski");
+   a "Colour: …" line in its description; a colour word near the
+   start of the description. Shades roll up into families so Navy
+   finds Blue and Wine finds Maroon, but the exact shade always
+   ranks first. Black / white / grey / beige accessories go with
+   anything, at the lowest rank.
+   ============================================================ */
+const COLOR_FAMILIES = {
+  black: ['jet black', 'black', 'jet'],
+  white: ['off white', 'snow white', 'white', 'ivory', 'cream', 'pearl', 'milky'],
+  grey: ['charcoal', 'grey', 'gray', 'ash', 'silver', 'slate', 'smoke', 'steel'],
+  blue: ['navy blue', 'sky blue', 'royal blue', 'ice blue', 'powder blue', 'navy', 'blue', 'sky', 'denim', 'cobalt', 'indigo'],
+  teal: ['sea green', 'teal', 'turquoise', 'ferozi', 'firozi', 'aqua', 'peacock'],
+  green: ['bottle green', 'dark green', 'parrot green', 'green', 'olive', 'emerald', 'mint', 'pista', 'pistachio', 'sage', 'mehndi', 'lime', 'moss'],
+  brown: ['brown', 'chocolate', 'coffee', 'camel', 'tan', 'mocha', 'copper', 'cinnamon', 'walnut', 'chestnut'],
+  beige: ['beige', 'skin', 'fawn', 'biscuit', 'sand', 'nude', 'khaki', 'champagne', 'oatmeal', 'taupe', 'mushroom'],
+  red: ['blood red', 'red', 'maroon', 'wine', 'burgundy', 'crimson', 'cherry', 'rust', 'brick'],
+  pink: ['tea pink', 'baby pink', 'hot pink', 'pink', 'peach', 'rose', 'blush', 'coral', 'fuchsia', 'magenta', 'salmon', 'onion'],
+  purple: ['purple', 'lilac', 'lavender', 'mauve', 'plum', 'violet', 'jamuni', 'aubergine'],
+  yellow: ['yellow', 'mustard', 'lemon', 'golden', 'gold', 'canary', 'haldi'],
+  orange: ['orange', 'tangerine', 'apricot']
+};
+const COLOR_TERMS = Object.entries(COLOR_FAMILIES)
+  .flatMap(([fam, words]) => words.map(w => ({ w, fam })))
+  .sort((a, b) => b.w.length - a.w.length); // "navy blue" before "blue"
+const NEUTRAL_FAMS = new Set(['black', 'white', 'grey', 'beige']);
+const ACCESSORY_RE = /\b(bags?|clutch|pouch|purse|tote|wallet|shawls?|stole|dupatta|scarf|hijab|khussa|shoes?|sandals?|slippers?|chappal|jewell?ery|jewelry|earrings?|bangles?|necklace|cap|topi|waistcoat|belt)\b/i;
+
+function stripTags(s) { return String(s || '').replace(/<[^>]*>/g, ' '); }
+function titleCase(s) { return String(s || '').replace(/\b[a-z]/g, c => c.toUpperCase()); }
+
+function detectColors(text) {
+  let t = ' ' + stripTags(text).toLowerCase().replace(/off-white/g, 'off white').replace(/[^a-z]+/g, ' ') + ' ';
+  const src = t, out = [];
+  for (const { w, fam } of COLOR_TERMS) {
+    const needle = ' ' + w + ' ';
+    if (t.indexOf(needle) > -1) {
+      out.push({ name: w, fam, at: src.indexOf(needle) });
+      t = t.split(needle).join(' ');
+    }
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+function productColors(p) {
+  const own = String(p.color || '').trim();
+  if (own) {
+    const found = detectColors(own);
+    if (found.length) return found;
+    return own.toLowerCase().split(',').map(s => s.trim()).filter(Boolean).map(n => ({ name: n, fam: n }));
+  }
+  let c = detectColors(p.name);
+  if (c.length) return c;
+  const desc = stripTags(p.description);
+  const line = desc.match(/colou?r\s*[:\-\u2013]\s*([^\n.,;|]{2,40})/i);
+  if (line) { c = detectColors(line[1]); if (c.length) return c; }
+  return detectColors(desc.slice(0, 300));
+}
+
+// Who a product is for (women / men / all), from the menu tabs it is reachable through.
+async function audienceLookup(env) {
+  try {
+    const [tabsRes, assignRes] = await env.DB.batch([
+      env.DB.prepare('SELECT id, gender, fabrics FROM nav_tabs WHERE is_active = 1'),
+      env.DB.prepare('SELECT tab_id, product_id FROM nav_tab_products')
+    ]);
+    const tabs = tabsRes.results || [];
+    const byTab = {};
+    tabs.forEach(t => { byTab[t.id] = t; });
+    const byProduct = {};
+    (assignRes.results || []).forEach(a => {
+      const t = byTab[a.tab_id];
+      if (t && t.gender) (byProduct[a.product_id] = byProduct[a.product_id] || new Set()).add(t.gender);
+    });
+    const byFabric = {};
+    tabs.forEach(t => String(t.fabrics || '').split(',').forEach(f => {
+      const v = f.trim().toLowerCase();
+      if (v && t.gender) (byFabric[v] = byFabric[v] || new Set()).add(t.gender);
+    }));
+    return (p) => {
+      const s = new Set(byProduct[p.id] || []);
+      (byFabric[String(p.fabric || '').trim().toLowerCase()] || []).forEach(g => s.add(g));
+      return s;
+    };
+  } catch (e) {
+    return () => new Set();
+  }
+}
+
+function sharesAudience(a, b) {
+  if (!a.size || !b.size || a.has('all') || b.has('all')) return true;
+  for (const g of a) if (b.has(g)) return true;
+  return false;
+}
+
+const FBT_COLS = 'id, name, slug, fabric, price, sale_price, image_url, stock, sort_order, substr(description, 1, 600) AS description';
+
+async function readFbtRows(env) {
+  try {
+    return (await env.DB.prepare(`SELECT ${FBT_COLS}, color FROM products WHERE is_active = 1`).all()).results || [];
+  } catch (e) { // colour column not migrated yet
+    return (await env.DB.prepare(`SELECT ${FBT_COLS} FROM products WHERE is_active = 1`).all()).results || [];
+  }
+}
+
+async function boughtTogether(env, slug, limit = 3) {
+  const rows = await readFbtRows(env);
+  const me = rows.find(r => r.slug === slug);
+  if (!me) return { color: null, items: [] };
+  const mine = productColors(me);
+  if (!mine.length) return { color: null, items: [] };
+
+  const audienceOf = await audienceLookup(env);
+  const myAudience = audienceOf(me);
+  const fab = (s) => String(s || '').trim().toLowerCase();
+  const isAcc = (p) => ACCESSORY_RE.test(`${p.name} ${p.fabric || ''}`);
+  const meAcc = isAcc(me);
+  const myShades = new Set(mine.map(c => c.name));
+  const myFams = new Set(mine.map(c => c.fam));
+
+  const scored = [];
+  for (const r of rows) {
+    if (r.id === me.id) continue;
+    if (r.stock !== null && r.stock !== undefined && Number(r.stock) <= 0) continue;
+    if (!sharesAudience(myAudience, audienceOf(r))) continue;
+    const theirs = productColors(r);
+    const acc = isAcc(r);
+    const exact = theirs.find(c => myShades.has(c.name));
+    const family = exact ? null : theirs.find(c => myFams.has(c.fam));
+    const neutral = (exact || family || !acc) ? null : theirs.find(c => NEUTRAL_FAMS.has(c.fam));
+    const hit = exact || family || neutral;
+    if (!hit) continue;
+    let score = exact ? 10 : family ? 6 : 2;
+    if (acc && !meAcc) score += 4;            // the matching bag / shawl
+    if (fab(r.fabric) !== fab(me.fabric)) score += 3; // complements, not a near-duplicate
+    scored.push({ r, score, match: hit.name });
+  }
+  scored.sort((a, b) => b.score - a.score || (a.r.sort_order || 0) - (b.r.sort_order || 0) || b.r.id - a.r.id);
+
+  // One per fabric first, so three Lawn suits never crowd out the bag.
+  const picked = [], seen = new Set();
+  for (const s of scored) {
+    if (picked.length >= limit) break;
+    if (seen.has(fab(s.r.fabric))) continue;
+    picked.push(s); seen.add(fab(s.r.fabric));
+  }
+  for (const s of scored) {
+    if (picked.length >= limit) break;
+    if (!picked.includes(s)) picked.push(s);
+  }
+  return {
+    color: titleCase(mine[0].name),
+    items: picked.map(({ r, match }) => ({
+      id: r.id, name: r.name, slug: r.slug, fabric: r.fabric, price: r.price,
+      sale_price: r.sale_price, image_url: r.image_url, stock: r.stock, match: titleCase(match)
+    }))
+  };
 }
 
 /* raw.githubusercontent.com sends Cache-Control: max-age=300 and is not a
@@ -306,7 +470,7 @@ const CACHEABLE_API = [
   '/api/bootstrap',
   '/api/products', '/api/banners', '/api/fabric-categories',
   '/api/settings', '/api/nav-tabs', '/api/tiktok-pixel-id',
-  '/api/reviews-summary'
+  '/api/reviews-summary', '/api/product', '/api/bought-together'
 ];
 
 function isCacheableApi(path) {
@@ -314,9 +478,19 @@ function isCacheableApi(path) {
 }
 
 // Drop every cached variant of the read-only API after an admin write.
-async function purgeApiCache(origin) {
+async function purgeApiCache(origin, env) {
   const cache = caches.default;
   const keys = [];
+  // Per-product endpoints are keyed by slug.
+  if (env && env.DB) {
+    try {
+      const { results } = await env.DB.prepare('SELECT slug FROM products').all();
+      (results || []).forEach(r => {
+        const s = encodeURIComponent(r.slug);
+        keys.push(origin + '/api/product?slug=' + s, origin + '/api/bought-together?slug=' + s);
+      });
+    } catch (e) {}
+  }
   for (const p of CACHEABLE_API) {
     keys.push(origin + p);
     // Query-string variants the storefront actually requests.
@@ -354,7 +528,7 @@ export default {
 
     // 3. Any admin write invalidates the read-only API immediately.
     if (request.method !== 'GET' && url.pathname.startsWith('/api/admin/')) {
-      ctx.waitUntil(purgeApiCache(url.origin));
+      ctx.waitUntil(purgeApiCache(url.origin, env));
     }
 
     return response;
@@ -498,7 +672,7 @@ export default {
           }
         }
 
-        ctx.waitUntil(purgeApiCache(url.origin));
+        ctx.waitUntil(purgeApiCache(url.origin, env));
         return json({
           imported: Object.keys(map).length,
           failed: problems.length,
@@ -694,7 +868,7 @@ export default {
           ).bind(pid, name, r.city || null, rating, r.body || null, consent, approved,
                  parseInt(r.sort_order, 10) || 0).run();
         }
-        ctx.waitUntil(purgeApiCache(url.origin));
+        ctx.waitUntil(purgeApiCache(url.origin, env));
         return json({ success: true });
       } catch (err) {
         return json({ error: err.message }, 500);
@@ -705,7 +879,7 @@ export default {
       try {
         const id = url.searchParams.get('id');
         await env.DB.prepare('DELETE FROM reviews WHERE id = ?').bind(id).run();
-        ctx.waitUntil(purgeApiCache(url.origin));
+        ctx.waitUntil(purgeApiCache(url.origin, env));
         return json({ success: true });
       } catch (err) {
         return json({ error: err.message }, 500);
@@ -723,8 +897,23 @@ export default {
       }
     }
 
+    /* Admin → Products → "Check colours": what each product will be matched on. */
+    if (path === '/api/admin/color-report' && method === 'GET') {
+      try {
+        await ensureSchema(env);
+        const rows = await readFbtRows(env);
+        return json(rows.map(r => {
+          const c = productColors(r);
+          return { id: r.id, name: r.name, color: r.color || null, detected: c.map(x => titleCase(x.name)) };
+        }));
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
     if (path === '/api/admin/products' && method === 'POST') {
       try {
+        await ensureSchema(env);
         const p = await request.json();
         const images = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
         const imageUrl = images[0] || p.image_url;
@@ -733,12 +922,13 @@ export default {
           return json({ error: 'Missing required fields (need at least one image)' }, 400);
         }
         await env.DB.prepare(
-          `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products))`
+          `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, color, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products))`
         ).bind(
           p.name, p.slug, p.fabric || null, p.description || null,
           p.price, p.sale_price || null, imageUrl, imageUrl2,
-          images.length ? JSON.stringify(images) : null, p.stock || 0
+          images.length ? JSON.stringify(images) : null, p.stock || 0,
+          (p.color || '').trim() || null
         ).run();
         return json({ success: true });
       } catch (err) {
@@ -748,6 +938,7 @@ export default {
 
     if (path === '/api/admin/products/bulk' && method === 'POST') {
       try {
+        await ensureSchema(env);
         const { products } = await request.json();
         if (!Array.isArray(products) || products.length === 0) {
           return json({ error: 'No products provided' }, 400);
@@ -762,18 +953,20 @@ export default {
           const imageUrl2 = imgList[1] || p.image_url_2 || null;
           const hasPosition = p.position !== undefined && p.position !== '';
           return env.DB.prepare(
-            `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, is_active, sort_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ${hasPosition ? '?' : '(SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products)'})
+            `INSERT INTO products (name, slug, fabric, description, price, sale_price, image_url, image_url_2, images_json, stock, color, is_active, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ${hasPosition ? '?' : '(SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products)'})
              ON CONFLICT(slug) DO UPDATE SET
                name=excluded.name, fabric=excluded.fabric, description=excluded.description,
                price=excluded.price, sale_price=excluded.sale_price,
                image_url=excluded.image_url, image_url_2=excluded.image_url_2,
-               images_json=excluded.images_json, stock=excluded.stock${hasPosition ? ', sort_order=excluded.sort_order' : ''}`
+               images_json=excluded.images_json, stock=excluded.stock,
+               color=COALESCE(excluded.color, products.color)${hasPosition ? ', sort_order=excluded.sort_order' : ''}`
           ).bind(
             ...[
               p.name, p.slug, p.fabric || null, p.description || null,
               Number(p.price), p.sale_price ? Number(p.sale_price) : null,
               imageUrl, imageUrl2, imgList.length ? JSON.stringify(imgList) : null, Number(p.stock) || 0,
+              String(p.color || p.colour || '').trim() || null,
               ...(hasPosition ? [Number(p.position)] : [])
             ]
           );
@@ -788,7 +981,8 @@ export default {
     if (path === '/api/admin/products/bulk-tag' && method === 'POST') {
       try {
         const { ids, field, value } = await request.json();
-        const allowedFields = ['in_new_arrivals', 'in_sale_tab', 'in_lawn_tab', 'fabric', 'is_active'];
+        const allowedFields = ['in_new_arrivals', 'in_sale_tab', 'in_lawn_tab', 'fabric', 'is_active', 'color'];
+        if (field === 'color') await ensureSchema(env);
         if (!Array.isArray(ids) || ids.length === 0 || !allowedFields.includes(field)) {
           return json({ error: 'Invalid request' }, 400);
         }
@@ -1393,6 +1587,32 @@ export default {
       }
     }
 
+    /* One product, full row — every gallery photo and the description.
+       The product page used to look itself up in the trimmed grid list
+       (CARD_COLS), which carries only the two grid photos and no
+       description — so every product showed 2 photos. */
+    if (path === '/api/product' && method === 'GET') {
+      try {
+        await ensureSchema(env, ctx);
+        const row = await env.DB
+          .prepare('SELECT * FROM products WHERE slug = ? AND is_active = 1')
+          .bind(url.searchParams.get('slug') || '').first();
+        if (!row) return json({ error: 'Not found' }, 404);
+        return json(row);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    if (path === '/api/bought-together' && method === 'GET') {
+      try {
+        await ensureSchema(env, ctx);
+        return json(await boughtTogether(env, url.searchParams.get('slug') || ''));
+      } catch (err) {
+        return json({ color: null, items: [], error: err.message }, 500);
+      }
+    }
+
     if (path === '/api/products' && method === 'GET') {
       try {
         await ensureSchema(env, ctx);
@@ -1689,7 +1909,7 @@ export default {
         // two people can't be sold the last piece.
         ctx.waitUntil(env.DB.batch(priced.map(i =>
           env.DB.prepare('UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ? AND stock IS NOT NULL').bind(i.qty, i.product_id)
-        )).then(() => purgeApiCache(url.origin)).catch(() => {}));
+        )).then(() => purgeApiCache(url.origin, env)).catch(() => {}));
 
         ctx.waitUntil(notifyNewOrder({ customer_name, phone: cleanPhone, address, city, items: priced, total, risk_note: riskNote }, env));
 
