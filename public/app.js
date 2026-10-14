@@ -181,7 +181,10 @@ async function getProducts() {
   try {
     return await apiCached('/api/products');
   } catch (e) {
-    return SAMPLE_PRODUCTS; // placeholder fallback until D1 + Functions are wired up
+    // Sample data is for local preview only. On the live site a failed load
+    // used to show nine made-up products that could be added to the bag and
+    // then failed at checkout.
+    return /^(localhost|127\.)/.test(location.hostname) ? SAMPLE_PRODUCTS : [];
   }
 }
 
@@ -193,7 +196,13 @@ async function getSettings() {
   }
 }
 
+/* The full row — every gallery photo and the description. The grid list
+   only carries the two grid photos, which is why product pages showed 2. */
 async function getProduct(slug) {
+  try {
+    const p = await apiDirect('/api/product?slug=' + encodeURIComponent(slug || ''));
+    if (p && p.id) return p;
+  } catch (e) {}
   const products = await getProducts();
   return products.find(p => p.slug === slug);
 }
@@ -894,6 +903,8 @@ async function convSettings() {
     trust: (s.trust_badges === undefined || s.trust_badges === null) ? TRUST_DEFAULT : s.trust_badges,
     reviewsOn: s.reviews_enabled !== '0',
     bagReminder: s.bag_reminder !== '0',
+    fbtOn: s.fbt_enabled !== '0',
+    fbtTitle: s.fbt_title || 'Frequently Bought Together',
     codNote: s.cod_confirm_note || "We'll confirm your order on WhatsApp or by phone before dispatch.",
     exchangeNote: s.exchange_note || ''
   };
@@ -1044,6 +1055,8 @@ async function reconcileCart() {
   if (!cart.length) return { changed: [], removed: [] };
   let products;
   try { products = await getProducts(); } catch (e) { return { changed: [], removed: [] }; }
+  // A failed or empty load must never empty a customer's bag.
+  if (!Array.isArray(products) || !products.length) return { changed: [], removed: [] };
   const byId = {};
   products.forEach(p => { byId[p.id] = p; });
 
@@ -1075,6 +1088,81 @@ function cartNoticeHtml(res) {
   if (!all.length) return '';
   return '<div class="cart-notice"><b>Your bag was updated</b><ul>' +
     all.map(t => '<li>' + escapeHtml(t) + '</li>').join('') + '</ul></div>';
+}
+
+/* ============================================================
+   FREQUENTLY BOUGHT TOGETHER (product page)
+   The Worker picks up to three in-stock pieces in the same colour
+   — exact shade first, then the colour family — favouring a
+   matching accessory (bag, shawl…) or a different fabric, and only
+   from the same audience. Shows nothing when there is no match.
+   ============================================================ */
+async function getBoughtTogether(slug) {
+  try { return await apiDirect('/api/bought-together?slug=' + encodeURIComponent(slug || '')); }
+  catch (e) { return { items: [] }; }
+}
+
+async function renderBoughtTogether(product, mountId) {
+  const mount = document.getElementById(mountId);
+  if (!mount || !product) return;
+  const [s, data] = await Promise.all([convSettings(), getBoughtTogether(product.slug)]);
+  if (!s.fbtOn || !data || !Array.isArray(data.items) || !data.items.length) return;
+
+  const selfSoldOut = product.stock !== null && product.stock !== undefined && Number(product.stock) <= 0;
+  const rows = (selfSoldOut ? [] : [Object.assign({}, product, { _self: true })]).concat(data.items);
+  if (rows.length < 2) return;
+  const unit = (p) => Number(p.sale_price || p.price) || 0;
+
+  mount.innerHTML = `
+    <section class="fbt" aria-labelledby="fbt-title">
+      <div class="fbt-head">
+        <h2 class="fbt-title" id="fbt-title">${escapeHtml(s.fbtTitle)}</h2>
+        ${data.color ? `<span class="fbt-match">Matched to ${escapeHtml(data.color)}</span>` : ''}
+      </div>
+      <div class="fbt-thumbs">
+        ${rows.map((p, i) => `${i ? '<span class="fbt-plus" aria-hidden="true">+</span>' : ''}${p._self
+          ? `<span class="fbt-thumb is-self" data-i="${i}">`
+          : `<a class="fbt-thumb" data-i="${i}" href="/product.html?slug=${encodeURIComponent(p.slug)}" aria-label="${escapeHtml(p.name)}">`
+        }<img src="${thumbUrl(p.image_url)}" alt="" loading="lazy" decoding="async">${p._self ? '</span>' : '</a>'}`).join('')}
+      </div>
+      <ul class="fbt-list">
+        ${rows.map((p, i) => `
+          <li><label class="fbt-row">
+            <input type="checkbox" class="fbt-check" data-i="${i}" checked>
+            <span class="fbt-name">${p._self ? '<b>This item:</b> ' : ''}${escapeHtml(p.name)}${!p._self && p.match ? ` <span class="fbt-shade">${escapeHtml(p.match)}</span>` : ''}</span>
+            <span class="fbt-price">${p.sale_price ? `<s>${money(p.price)}</s>` : ''}${money(unit(p))}</span>
+          </label></li>`).join('')}
+      </ul>
+      <div class="fbt-foot">
+        <div class="fbt-total">Total <b id="fbt-total"></b></div>
+        <button type="button" class="btn fbt-add" id="fbt-add"></button>
+      </div>
+    </section>`;
+
+  const checks = [...mount.querySelectorAll('.fbt-check')];
+  const btn = mount.querySelector('#fbt-add');
+  const chosen = () => checks.filter(c => c.checked).map(c => rows[Number(c.dataset.i)]);
+  function update() {
+    const on = chosen();
+    mount.querySelector('#fbt-total').textContent = money(on.reduce((n, p) => n + unit(p), 0));
+    btn.disabled = !on.length;
+    btn.textContent = !on.length ? 'Select an item'
+      : on.length === rows.length ? (rows.length === 2 ? 'Add both to cart' : `Add all ${rows.length} to cart`)
+      : on.length === 1 ? 'Add 1 item to cart' : `Add ${on.length} items to cart`;
+    mount.querySelectorAll('.fbt-thumb').forEach(t => t.classList.toggle('is-off', !checks[Number(t.dataset.i)].checked));
+  }
+  checks.forEach(c => c.addEventListener('change', update));
+  update();
+
+  btn.addEventListener('click', () => {
+    const on = chosen();
+    if (!on.length) return;
+    on.forEach(p => addToCart(p, 1));
+    showToast(on.length === 1 ? `Added — ${on[0].name}` : `Added ${on.length} items to your bag`);
+    if (typeof fireConfetti === 'function') fireConfetti();
+    sessionStorage.setItem('cs_return_url', location.href);
+    openCartDrawer();
+  });
 }
 
 

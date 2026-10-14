@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles.css?v=20261014">
 </head>
 <body>
 
@@ -88,6 +88,11 @@
         </div>
         <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Product is automatically added under this fabric in "Shop by Fabric" — new fabric types get a random icon assigned.</p>
       </div>
+      <div>
+        <label>Colour (optional)</label>
+        <input name="color" placeholder="e.g. Maroon — or Maroon, Gold">
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Powers "Frequently Bought Together". Leave blank if the colour is already in the name ("Maroon Boski Suit").</p>
+      </div>
       <div><label>Regular Price (Rs.)</label><input name="price" type="number" required></div>
       <div><label>Sale Price (Rs., optional)</label><input name="sale_price" type="number"></div>
       <div><label>Stock</label><input name="stock" type="number" value="10" required></div>
@@ -134,6 +139,19 @@
         <option value="Silk">Silk</option>
         <option value="Organza">Organza</option>
       </select>
+      <span style="display:flex; gap:6px;">
+        <input type="text" id="bulk-color-input" placeholder="Colour, e.g. Maroon" style="padding:8px; font-size:12px; border:1px solid var(--line); width:150px;">
+        <button type="button" class="btn btn-outline-dark" id="bulk-color-btn" style="padding:8px 14px; font-size:12px;">Set colour</button>
+      </span>
+    </div>
+    <div style="border:1px solid var(--line); padding:12px 16px; margin-bottom:14px;">
+      <b style="font-size:13.5px;">Frequently Bought Together — colour check</b>
+      <p style="font-size:12.5px; color:var(--charcoal-soft); margin:4px 0 8px; max-width:640px;">
+        Product pages suggest pieces in the same colour. This lists products the store can't find a colour for,
+        so they get no suggestions and are never suggested. Tick them below and use <b>Set colour</b>.
+      </p>
+      <button type="button" class="btn btn-outline-dark" id="color-report-btn" style="padding:8px 14px; font-size:12px;">Check colours</button>
+      <div id="color-report" style="font-size:12.5px; margin-top:8px;"></div>
     </div>
     <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:10px;">
       <input type="checkbox" id="select-all-products"> Select all products</label>
@@ -298,6 +316,18 @@
             <option value="0">Off</option>
           </select>
           <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Lives in the visitor's own browser — no email address, no consent needed.</p>
+        </div>
+        <div>
+          <label>“Frequently Bought Together” on product pages</label>
+          <select name="fbt_enabled">
+            <option value="1">Show colour-matched suggestions</option>
+            <option value="0">Off</option>
+          </select>
+          <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Up to three in-stock pieces in the same colour, matching bags and shawls first.</p>
+        </div>
+        <div>
+          <label>Section title</label>
+          <input name="fbt_title" placeholder="Frequently Bought Together">
         </div>
         <button type="submit" class="btn">Save Trust Settings</button>
         <div id="trust-form-msg" class="full" style="font-size:13px;"></div>
@@ -511,7 +541,7 @@
   </div>
 </div>
 
-<script src="/app.js"></script>
+<script src="/app.js?v=20261014"></script>
 <script>
 document.querySelectorAll('.admin-tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -1198,6 +1228,44 @@ document.querySelectorAll('#bulk-tag-bar button[data-tag]').forEach(btn => {
   });
 });
 
+document.getElementById('bulk-color-btn').addEventListener('click', async () => {
+  const value = document.getElementById('bulk-color-input').value.trim();
+  const ids = [...document.querySelectorAll('.product-select:checked')].map(cb => Number(cb.value));
+  if (!ids.length) { alert('Tick the products first.'); return; }
+  if (!value && !confirm('Clear the colour on ' + ids.length + ' product(s)? They will fall back to the colour in their name.')) return;
+  try {
+    await api('/api/admin/products/bulk-tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, field: 'color', value: value || null })
+    });
+    alert(value ? `Set colour to "${value}" for ${ids.length} product(s).` : `Cleared colour on ${ids.length} product(s).`);
+    loadProducts();
+  } catch (e) {
+    alert('Failed: ' + e.message);
+  }
+});
+
+document.getElementById('color-report-btn').addEventListener('click', async (e) => {
+  const box = document.getElementById('color-report');
+  e.currentTarget.disabled = true;
+  box.textContent = 'Checking…';
+  try {
+    const rows = await api('/api/admin/color-report?fresh=' + Date.now());
+    const missing = rows.filter(r => !r.detected.length);
+    const counts = {};
+    rows.forEach(r => { const k = r.detected[0]; if (k) counts[k] = (counts[k] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${escapeHtml(k)} ${n}`).join(' · ');
+    box.innerHTML = `<p style="margin:0 0 6px;"><b>${rows.length - missing.length} of ${rows.length}</b> live products have a colour${top ? ` — ${top}` : ''}.</p>`
+      + (missing.length
+        ? `<p style="margin:0 0 4px;"><b>${missing.length} without a colour:</b></p><ul style="margin:0; padding-left:18px; max-height:220px; overflow:auto;">${missing.map(r => `<li>${escapeHtml(r.name)}</li>`).join('')}</ul>`
+        : '<p style="margin:0;">Every live product has a colour.</p>');
+  } catch (err) {
+    box.textContent = 'Failed: ' + err.message + ' — deploy the new src/index.js first.';
+  }
+  e.currentTarget.disabled = false;
+});
+
 document.getElementById('bulk-fabric-select').addEventListener('change', async (e) => {
   const value = e.target.value;
   if (!value) return;
@@ -1267,7 +1335,8 @@ document.getElementById('product-form').addEventListener('submit', async (e) => 
     price: Number(form.price.value),
     sale_price: form.sale_price.value ? Number(form.sale_price.value) : null,
     images: productImages,
-    stock: Number(form.stock.value)
+    stock: Number(form.stock.value),
+    color: form.color.value.trim()
   };
   try {
     if (payload.fabric) {
@@ -1316,9 +1385,9 @@ function parseCSV(text) {
 
 document.getElementById('download-template-btn').addEventListener('click', () => {
   const imgHeaders = Array.from({length: 13}, (_, i) => i === 0 ? 'image_url' : `image_url_${i+1}`);
-  const headers = ['name','slug','fabric','description','price','sale_price', ...imgHeaders, 'stock', 'position'];
+  const headers = ['name','slug','fabric','description','price','sale_price', ...imgHeaders, 'stock', 'position', 'color'];
   const imgExample = imgHeaders.map((_, i) => i < 2 ? `/images/placeholder-${i+1}.svg` : '');
-  const example = ['Sample 3PC Lawn','sample-3pc-lawn','Lawn','Example description here','5999','4499', ...imgExample,'20','1'];
+  const example = ['Sample 3PC Lawn','sample-3pc-lawn','Lawn','Example description here','5999','4499', ...imgExample,'20','1','Maroon'];
   const csv = headers.join(',') + '\n' + example.join(',') + '\n';
   const blob = new Blob([csv], { type: 'text/csv' });
   const link = document.createElement('a');
@@ -2584,7 +2653,7 @@ document.getElementById('review-form').addEventListener('submit', async (e) => {
 });
 
 /* ---------------- Trust settings ---------------- */
-const TRUST_KEYS = ['low_stock_threshold','trust_badges','cod_confirm_note','exchange_note','reviews_enabled','bag_reminder'];
+const TRUST_KEYS = ['low_stock_threshold','trust_badges','cod_confirm_note','exchange_note','reviews_enabled','bag_reminder','fbt_enabled','fbt_title'];
 
 function fillTrustForm(s) {
   const f = document.getElementById('trust-form');
@@ -2599,6 +2668,8 @@ function fillTrustForm(s) {
   if (s.exchange_note) f.exchange_note.value = s.exchange_note;
   f.reviews_enabled.value = s.reviews_enabled === '0' ? '0' : '1';
   f.bag_reminder.value = s.bag_reminder === '0' ? '0' : '1';
+  f.fbt_enabled.value = s.fbt_enabled === '0' ? '0' : '1';
+  if (s.fbt_title) f.fbt_title.value = s.fbt_title;
 }
 
 document.getElementById('trust-form').addEventListener('submit', async (e) => {

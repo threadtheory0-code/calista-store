@@ -19,7 +19,7 @@
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles.css?v=20261014">
 <script>
 !function (w, d, t) {
   w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
@@ -94,7 +94,7 @@
   </button>
 </div>
 
-<script src="/app.js"></script>
+<script src="/app.js?v=20261014"></script>
 <script>
 (async function () {
   const params = new URLSearchParams(location.search);
@@ -109,11 +109,10 @@
 
   let galleryImages = [];
   try {
-    if (product.images_json) galleryImages = JSON.parse(product.images_json);
+    if (product.images_json) galleryImages = JSON.parse(product.images_json) || [];
   } catch (e) {}
-  if (!galleryImages.length) {
-    galleryImages = [product.image_url, product.image_url_2].filter(Boolean);
-  }
+  // Main photo always leads, duplicates dropped.
+  galleryImages = [...new Set([product.image_url].concat(galleryImages, [product.image_url_2]).filter(u => typeof u === 'string' && u))];
 
   // Filled in once settings load — the note only ever quotes the real
   // stock number, and the threshold is set in Admin → Settings.
@@ -140,6 +139,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         <span class="cart-btn-text">${soldOut ? 'Sold Out' : 'Add to Cart'}</span>
       </button>
+      <div id="fbt-mount"></div>
       <div class="whatsapp-actions">
         <a class="whatsapp-inquire-btn" id="whatsapp-inquire" href="#" target="_blank" rel="noopener">
           <span class="whatsapp-icon-circle">
@@ -165,11 +165,13 @@
   `;
 
   // SEO: dynamic title, meta description, Open Graph, canonical URL, and Product structured data
+  const plainDesc = String(product.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const ogImage = galleryImages[0] ? new URL(fullUrl(galleryImages[0]), location.origin).href : '';
   document.getElementById('page-title').textContent = `${product.name} — Calista`;
-  document.getElementById('meta-description').setAttribute('content', (product.description || '').slice(0, 155));
+  document.getElementById('meta-description').setAttribute('content', plainDesc.slice(0, 155));
   document.getElementById('og-title').setAttribute('content', product.name);
-  document.getElementById('og-description').setAttribute('content', (product.description || '').slice(0, 155));
-  document.getElementById('og-image').setAttribute('content', galleryImages[0] || '');
+  document.getElementById('og-description').setAttribute('content', plainDesc.slice(0, 155));
+  document.getElementById('og-image').setAttribute('content', ogImage);
   document.getElementById('canonical-link').setAttribute('href', `https://calista.pages.dev/product.html?slug=${product.slug}`);
   const ldScript = document.createElement('script');
   ldScript.type = 'application/ld+json';
@@ -177,8 +179,8 @@
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: product.name,
-    description: product.description || '',
-    image: galleryImages,
+    description: plainDesc,
+    image: galleryImages.map(u => new URL(fullUrl(u), location.origin).href),
     offers: {
       '@type': 'Offer',
       priceCurrency: 'PKR',
@@ -195,6 +197,7 @@
   });
 
   loadRelatedProducts(product);
+  renderBoughtTogether(product, 'fbt-mount');
 
   // Honest stock note, rating row, trust panel and reviews.
   convSettings().then(s => {
