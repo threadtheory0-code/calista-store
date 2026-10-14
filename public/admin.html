@@ -91,7 +91,7 @@
       <div>
         <label>Colour (optional)</label>
         <input name="color" placeholder="e.g. Maroon — or Maroon, Gold">
-        <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Powers "Frequently Bought Together". Leave blank if the colour is already in the name ("Maroon Boski Suit").</p>
+        <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Powers "Frequently Bought Together". Leave blank and it is read from the photo (a colour in the name, e.g. "Maroon Boski Suit", wins).</p>
       </div>
       <div><label>Regular Price (Rs.)</label><input name="price" type="number" required></div>
       <div><label>Sale Price (Rs., optional)</label><input name="sale_price" type="number"></div>
@@ -147,10 +147,17 @@
     <div style="border:1px solid var(--line); padding:12px 16px; margin-bottom:14px;">
       <b style="font-size:13.5px;">Frequently Bought Together — colour check</b>
       <p style="font-size:12.5px; color:var(--charcoal-soft); margin:4px 0 8px; max-width:640px;">
-        Product pages suggest pieces in the same colour. This lists products the store can't find a colour for,
-        so they get no suggestions and are never suggested. Tick them below and use <b>Set colour</b>.
+        Product pages suggest pieces in the same colour, and ladies suits suggest a matching bag, wallet and keyring.
+        <b>Auto-detect</b> reads the colour from each product's main photo (leave the tab open — about a second per product).
+        A colour in the product name, or one you set with <b>Set colour</b>, always wins over the photo.
+        Bags, wallets and keyrings are recognised by those words in their name.
       </p>
+      <button type="button" class="btn" id="auto-color-btn" style="padding:8px 14px; font-size:12px;">Auto-detect colours from photos</button>
       <button type="button" class="btn btn-outline-dark" id="color-report-btn" style="padding:8px 14px; font-size:12px;">Check colours</button>
+      <label style="display:block; font-size:12px; color:var(--charcoal-soft); margin-top:8px;">
+        <input type="checkbox" id="auto-color-redo"> Re-read photos that were already auto-detected
+      </label>
+      <div id="auto-color-status" style="font-size:12.5px; margin-top:8px; color:var(--ink-green);"></div>
       <div id="color-report" style="font-size:12.5px; margin-top:8px;"></div>
     </div>
     <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:10px;">
@@ -323,7 +330,7 @@
             <option value="1">Show colour-matched suggestions</option>
             <option value="0">Off</option>
           </select>
-          <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Up to three in-stock pieces in the same colour, matching bags and shawls first.</p>
+          <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Ladies suits: a matching bag, wallet and keyring. Everything else: up to three in-stock pieces in the same colour.</p>
         </div>
         <div>
           <label>Section title</label>
@@ -681,6 +688,140 @@ function showCompressionNote(before, after, count) {
   box.style.display = '';
   clearTimeout(window.__compTimer);
   window.__compTimer = setTimeout(() => { box.style.display = 'none'; }, 6000);
+}
+
+/* ---------------- Photo colour detection ----------------
+   Reads the main fabric colour from a product photo, for "Frequently
+   Bought Together". The photo is shrunk to 48px wide; the border tells us
+   the backdrop, which is dropped; skin is down-weighted so a model's face
+   and hands don't win; the remaining pixels are grouped into four colour
+   clusters and the biggest is named against a palette of the shade words
+   the storefront understands. A second colour is kept when it covers at
+   least half as much as the first (prints, contrast dupattas). */
+const PHOTO_PALETTE = [
+  ['black', [22, 22, 24]], ['charcoal', [62, 64, 68]], ['grey', [128, 128, 130]], ['silver', [190, 190, 195]],
+  ['white', [246, 246, 244]], ['off white', [235, 229, 214]], ['cream', [240, 226, 192]],
+  ['beige', [212, 195, 160]], ['skin', [226, 192, 162]], ['khaki', [178, 162, 112]], ['camel', [193, 154, 107]],
+  ['brown', [112, 72, 42]], ['chocolate', [68, 40, 26]], ['rust', [172, 82, 42]],
+  ['maroon', [112, 22, 36]], ['wine', [98, 26, 56]], ['red', [200, 32, 42]], ['orange', [236, 122, 42]],
+  ['peach', [246, 182, 150]], ['tea pink', [228, 170, 170]], ['pink', [236, 122, 162]], ['fuchsia', [198, 40, 130]],
+  ['mauve', [168, 120, 140]], ['lilac', [190, 162, 212]], ['purple', [108, 50, 130]],
+  ['navy blue', [26, 36, 76]], ['blue', [42, 82, 170]], ['sky blue', [132, 182, 226]],
+  ['teal', [20, 118, 124]], ['turquoise', [62, 190, 190]], ['mint', [170, 224, 196]],
+  ['green', [42, 140, 72]], ['bottle green', [22, 70, 46]], ['olive', [110, 110, 52]],
+  ['mustard', [210, 164, 42]], ['yellow', [244, 214, 62]], ['golden', [198, 160, 72]]
+];
+
+function rgbToLab([r, g, b]) {
+  const f = (c) => { c /= 255; return c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92; };
+  const R = f(r), G = f(g), B = f(b);
+  const x = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
+  const y = (R * 0.2126 + G * 0.7152 + B * 0.0722);
+  const z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
+  const h = (t) => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  return [116 * h(y) - 16, 500 * (h(x) - h(y)), 200 * (h(y) - h(z))];
+}
+const PALETTE_LAB = PHOTO_PALETTE.map(([n, rgb]) => [n, rgbToLab(rgb)]);
+const labDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const median = (arr) => { const s = arr.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)] || 0; };
+
+function nearestShade(lab) {
+  let best = null, bd = Infinity;
+  for (const [n, l] of PALETTE_LAB) { const d = labDist(lab, l); if (d < bd) { bd = d; best = n; } }
+  return best;
+}
+
+// Kovac skin rule — good enough to stop faces and hands winning.
+function isSkin([r, g, b]) {
+  return r > 95 && g > 40 && b > 20 && r > g && r > b && (r - g) > 15 &&
+    (Math.max(r, g, b) - Math.min(r, g, b)) > 15;
+}
+
+function clusterColors(samples, k) {
+  const sorted = samples.slice().sort((a, b) => a.lab[0] - b.lab[0]);
+  let centers = Array.from({ length: k }, (_, i) => sorted[Math.floor((i + 0.5) * sorted.length / k)].lab.slice());
+  let groups = [];
+  for (let it = 0; it < 10; it++) {
+    groups = centers.map(() => ({ s: [0, 0, 0], w: 0 }));
+    for (const p of samples) {
+      let bi = 0, bd = Infinity;
+      centers.forEach((c, i) => { const d = labDist(p.lab, c); if (d < bd) { bd = d; bi = i; } });
+      const g = groups[bi];
+      g.s[0] += p.lab[0] * p.w; g.s[1] += p.lab[1] * p.w; g.s[2] += p.lab[2] * p.w; g.w += p.w;
+    }
+    centers = groups.map((g, i) => g.w ? g.s.map(v => v / g.w) : centers[i]);
+  }
+  return centers.map((c, i) => ({ c, w: groups[i].w })).filter(g => g.w > 0).sort((a, b) => b.w - a.w);
+}
+
+async function detectPhotoColor(url) {
+  const src = (typeof thumbUrl === 'function') ? thumbUrl(url) : url;
+  const res = await fetch(src, { mode: 'cors' });
+  if (!res.ok) throw new Error('photo ' + res.status);
+  const bmp = await createImageBitmap(await res.blob());
+  const W = 48, H = Math.max(24, Math.round(48 * bmp.height / bmp.width));
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0, W, H);
+  if (bmp.close) bmp.close();
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const px = (x, y) => { const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+
+  const border = [];
+  for (let x = 0; x < W; x++) border.push(rgbToLab(px(x, 0)), rgbToLab(px(x, H - 1)));
+  for (let y = 0; y < H; y++) border.push(rgbToLab(px(0, y)), rgbToLab(px(W - 1, y)));
+  const bg = [0, 1, 2].map(i => median(border.map(b => b[i])));
+  const plainBackdrop = median(border.map(b => labDist(b, bg))) < 8;
+
+  const all = [], kept = [];
+  for (let y = Math.floor(H * 0.08); y < Math.ceil(H * 0.95); y++) {
+    for (let x = Math.floor(W * 0.12); x < Math.ceil(W * 0.88); x++) {
+      const rgb = px(x, y), lab = rgbToLab(rgb);
+      const s = { lab, w: isSkin(rgb) ? 0.3 : 1 };
+      all.push(s);
+      if (!(plainBackdrop && labDist(lab, bg) < 10)) kept.push(s);
+    }
+  }
+  // Fabric the same colour as the backdrop (white on white): use everything.
+  const samples = kept.length >= all.length * 0.12 ? kept : all;
+  const groups = clusterColors(samples, 4);
+  if (!groups.length) return [];
+  const names = [nearestShade(groups[0].c)];
+  if (groups[1] && groups[1].w >= groups[0].w * 0.5) {
+    const n2 = nearestShade(groups[1].c);
+    if (n2 !== names[0]) names.push(n2);
+  }
+  return names.map(n => n.replace(/\b[a-z]/g, c => c.toUpperCase()));
+}
+
+async function autoDetectColors(statusEl, redo) {
+  const say = (t) => { if (statusEl) statusEl.textContent = t; };
+  say('Reading products…');
+  const rows = await api('/api/admin/color-report?fresh=' + Date.now());
+  const todo = rows.filter(r => r.image_url &&
+    (r.source === null || r.source === 'description-guess' || r.source === 'description' || (redo && r.source === 'photo')));
+  if (!todo.length) { say(`Nothing to do — all ${rows.length} live products already have a colour.`); return; }
+  let done = 0, saved = 0, failed = 0;
+  const buf = [];
+  const flush = async () => {
+    if (!buf.length) return;
+    await api('/api/admin/products/set-colors', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates: buf.splice(0) })
+    });
+  };
+  for (const r of todo) {
+    done++;
+    say(`Reading photo ${done} of ${todo.length} — ${saved} coloured${failed ? `, ${failed} unreadable` : ''}`);
+    try {
+      const names = await detectPhotoColor(r.image_url);
+      if (names.length) { buf.push({ id: r.id, color: names.join(', ') }); saved++; }
+    } catch (e) { failed++; }
+    if (buf.length >= 25) await flush();
+  }
+  await flush();
+  say(`Done — ${saved} products coloured from their photos${failed ? `, ${failed} photos couldn't be read` : ''}.`
+    + ` ${rows.length - todo.length} already had a colour from the name or typed by hand. Press Check colours to review.`);
 }
 
 /* ---------------- Grid thumbnails ----------------
@@ -1246,6 +1387,15 @@ document.getElementById('bulk-color-btn').addEventListener('click', async () => 
   }
 });
 
+document.getElementById('auto-color-btn').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const status = document.getElementById('auto-color-status');
+  btn.disabled = true;
+  try { await autoDetectColors(status, document.getElementById('auto-color-redo').checked); }
+  catch (err) { status.textContent = 'Failed: ' + err.message + ' — deploy the new src/index.js first.'; }
+  btn.disabled = false;
+});
+
 document.getElementById('color-report-btn').addEventListener('click', async (e) => {
   const box = document.getElementById('color-report');
   e.currentTarget.disabled = true;
@@ -1253,13 +1403,25 @@ document.getElementById('color-report-btn').addEventListener('click', async (e) 
   try {
     const rows = await api('/api/admin/color-report?fresh=' + Date.now());
     const missing = rows.filter(r => !r.detected.length);
-    const counts = {};
-    rows.forEach(r => { const k = r.detected[0]; if (k) counts[k] = (counts[k] || 0) + 1; });
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${escapeHtml(k)} ${n}`).join(' · ');
-    box.innerHTML = `<p style="margin:0 0 6px;"><b>${rows.length - missing.length} of ${rows.length}</b> live products have a colour${top ? ` — ${top}` : ''}.</p>`
+    const by = (src) => rows.filter(r => r.source === src).length;
+    const types = { bag: 0, wallet: 0, keyring: 0 };
+    rows.forEach(r => { if (types[r.type] !== undefined) types[r.type]++; });
+    const fromPhoto = rows.filter(r => r.source === 'photo');
+    const noAccessories = !types.bag && !types.wallet && !types.keyring;
+    box.innerHTML =
+      `<p style="margin:0 0 6px;"><b>${rows.length - missing.length} of ${rows.length}</b> live products have a colour — `
+      + `${by('manual')} set by hand, ${by('name')} from the name, ${fromPhoto.length} from the photo, ${by('description') + by('description-guess')} from the description.</p>`
+      + `<p style="margin:0 0 6px;">Add-ons for ladies suits: <b>${types.bag}</b> bags, <b>${types.wallet}</b> wallets, <b>${types.keyring}</b> keyrings`
+      + (noAccessories ? ' — <span style="color:var(--gold);">none yet. Add them as products with "Bag", "Wallet" or "Keyring" in the name and they appear automatically.</span>' : '.') + '</p>'
       + (missing.length
-        ? `<p style="margin:0 0 4px;"><b>${missing.length} without a colour:</b></p><ul style="margin:0; padding-left:18px; max-height:220px; overflow:auto;">${missing.map(r => `<li>${escapeHtml(r.name)}</li>`).join('')}</ul>`
-        : '<p style="margin:0;">Every live product has a colour.</p>');
+        ? `<p style="margin:8px 0 4px;"><b>${missing.length} without a colour</b> (press Auto-detect, or tick and Set colour):</p><ul style="margin:0; padding-left:18px; max-height:180px; overflow:auto;">${missing.map(r => `<li>${escapeHtml(r.name)}</li>`).join('')}</ul>`
+        : '')
+      + (fromPhoto.length
+        ? `<p style="margin:10px 0 4px;"><b>Read from photos</b> — glance for mistakes, fix any with Set colour:</p>`
+          + `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:8px; max-height:360px; overflow:auto;">`
+          + fromPhoto.map(r => `<div style="font-size:11px; line-height:1.3;"><img src="${thumbUrl(r.image_url)}" alt="" loading="lazy" style="width:100%; aspect-ratio:3/4; object-fit:cover; display:block; background:#eee;"><b>${escapeHtml(r.detected.join(', '))}</b><br><span style="color:var(--charcoal-soft);">${escapeHtml(r.name)}</span></div>`).join('')
+          + `</div>`
+        : '');
   } catch (err) {
     box.textContent = 'Failed: ' + err.message + ' — deploy the new src/index.js first.';
   }
@@ -1338,6 +1500,13 @@ document.getElementById('product-form').addEventListener('submit', async (e) => 
     stock: Number(form.stock.value),
     color: form.color.value.trim()
   };
+  // No colour typed: read it from the main photo. A colour in the name still wins.
+  if (!payload.color && productImages[0]) {
+    try {
+      const names = await Promise.race([detectPhotoColor(productImages[0]), new Promise(r => setTimeout(() => r([]), 6000))]);
+      if (names.length) { payload.color = names.join(', '); payload.color_auto = true; }
+    } catch (e) {}
+  }
   try {
     if (payload.fabric) {
       await api('/api/admin/fabric-categories', {

@@ -1117,7 +1117,7 @@ async function renderBoughtTogether(product, mountId) {
     <section class="fbt" aria-labelledby="fbt-title">
       <div class="fbt-head">
         <h2 class="fbt-title" id="fbt-title">${escapeHtml(s.fbtTitle)}</h2>
-        ${data.color ? `<span class="fbt-match">Matched to ${escapeHtml(data.color)}</span>` : ''}
+        ${data.color ? `<span class="fbt-match">Matched to ${escapeHtml(data.color)}</span>` : '<span class="fbt-match">Complete the look</span>'}
       </div>
       <div class="fbt-thumbs">
         ${rows.map((p, i) => `${i ? '<span class="fbt-plus" aria-hidden="true">+</span>' : ''}${p._self
@@ -1129,7 +1129,7 @@ async function renderBoughtTogether(product, mountId) {
         ${rows.map((p, i) => `
           <li><label class="fbt-row">
             <input type="checkbox" class="fbt-check" data-i="${i}" checked>
-            <span class="fbt-name">${p._self ? '<b>This item:</b> ' : ''}${escapeHtml(p.name)}${!p._self && p.match ? ` <span class="fbt-shade">${escapeHtml(p.match)}</span>` : ''}</span>
+            <span class="fbt-name">${p._self ? '<b>This item:</b> ' : ''}${escapeHtml(p.name)}${!p._self && (p.match || (p.type && p.type !== 'other')) ? ` <span class="fbt-shade">${escapeHtml(p.match || p.type)}</span>` : ''}</span>
             <span class="fbt-price">${p.sale_price ? `<s>${money(p.price)}</s>` : ''}${money(unit(p))}</span>
           </label></li>`).join('')}
       </ul>
