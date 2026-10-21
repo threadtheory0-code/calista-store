@@ -350,7 +350,37 @@ document.addEventListener('DOMContentLoaded', () => {
   ensureMobileTabBar();
   initTrustMarquee();
   renderCategorySubTabs();
+  applyWhatsAppNumber();
 });
+
+/* ---------------- WhatsApp number (Admin → Site → Trust & conversion) ---------------- */
+const WA_DEFAULT = '923026255682';
+let WA_NUMBER = WA_DEFAULT;
+
+function normaliseWa(v) {
+  let d = String(v || '').replace(/[^0-9]/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('0')) d = '92' + d.slice(1);
+  else if (d.length === 10 && d.startsWith('3')) d = '92' + d;
+  return d.length >= 10 && d.length <= 15 ? d : '';
+}
+
+function waUrl(text) {
+  return 'https://wa.me/' + WA_NUMBER + (text ? '?text=' + encodeURIComponent(text) : '');
+}
+
+async function applyWhatsAppNumber() {
+  if (document.querySelector('.admin-wrap')) return; // admin links go to customers
+  try {
+    const n = normaliseWa((await getSettings()).whatsapp_number);
+    if (!n || n === WA_NUMBER) return;
+    const old = 'wa.me/' + WA_NUMBER;
+    WA_NUMBER = n;
+    document.querySelectorAll('a[href*="wa.me/"]').forEach(a => {
+      a.href = a.href.replace(old, 'wa.me/' + n).replace('wa.me/' + WA_DEFAULT, 'wa.me/' + n);
+    });
+  } catch (e) {}
+}
 
 /* ---------------- Category row ----------------
    The seasonal category tabs (Summer, Winter, Intermix…) sit directly under

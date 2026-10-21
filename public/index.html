@@ -31,7 +31,7 @@
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="/styles.css?v=20261014">
+<link rel="stylesheet" href="/styles.css?v=20261021">
 <script>
 !function (w, d, t) {
   w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
@@ -143,18 +143,20 @@
   </div>
 </section>
 
-<section class="section" id="bestsellers">
+<div id="home-products">
+<section class="section home-fabric-section">
   <div class="container">
     <div class="section-head">
       <h2>Best Sellers</h2>
       <div class="stitch-divider"></div>
     </div>
-    <div class="product-grid" id="product-grid">
+    <div class="product-grid">
       <div class="skeleton-card"></div><div class="skeleton-card"></div>
       <div class="skeleton-card"></div><div class="skeleton-card"></div>
     </div>
   </div>
 </section>
+</div>
 
 <section class="section" style="padding-bottom:0;">
   <div class="container">
@@ -225,16 +227,41 @@
   <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
 </footer>
 
-<script src="/app.js?v=20261014"></script>
+<script src="/app.js?v=20261021"></script>
 <script>
+/* Homepage rows. Admin → Site → "Products on the homepage" ticks which
+   fabrics get a row here; the rest are only reached through their tile or
+   menu tab. Nothing ticked = one "Best Sellers" row from the whole range.
+   Each row is capped (default 12) with a "View all" button — rendering the
+   entire catalogue on the homepage was the heaviest thing on the page. */
 (async function () {
-  const products = await getProducts();
-  const grid = document.getElementById('product-grid');
-  grid.innerHTML = products.map((p, i) => `
+  const box = document.getElementById('home-products');
+  const [products, s, fabrics] = await Promise.all([
+    getProducts(), getSettings(), apiCached('/api/fabric-categories').catch(() => [])
+  ]);
+  const rawCap = s.home_per_fabric;
+  const cap = (rawCap === undefined || rawCap === null || rawCap === '') ? 12 : Math.max(0, parseInt(rawCap, 10) || 0);
+  const picked = String(s.home_fabrics || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  const lc = (v) => String(v || '').trim().toLowerCase();
+
+  let groups = [];
+  if (picked.length) {
+    const names = (Array.isArray(fabrics) ? fabrics : []).map(f => f.name);
+    String(s.home_fabrics).split(',').map(x => x.trim()).filter(Boolean)
+      .forEach(n => { if (!names.some(o => lc(o) === lc(n))) names.push(n); });
+    groups = names.filter(n => picked.includes(lc(n))).map(n => ({
+      title: s['fabric_label_' + n] || n,
+      href: '/collection.html?fabric=' + encodeURIComponent(n),
+      items: products.filter(p => lc(p.fabric) === lc(n))
+    })).filter(g => g.items.length);
+  }
+  if (!groups.length) groups = [{ title: 'Best Sellers', href: '/collection.html', items: products, all: 'View All Products' }];
+
+  const card = (p) => `
     <a class="product-card" href="/product.html?slug=${p.slug}">
       <div class="product-thumb">
-        <img src="${thumbUrl(p.image_url)}" alt="${p.name}" width="600" height="800" decoding="async" ${i < 4 ? 'fetchpriority="high"' : 'loading="lazy"'}>
-        ${p.image_url_2 && CAN_HOVER ? `<img class="img-alt" src="${thumbUrl(p.image_url_2)}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">` : ''}
+        <img src="${thumbUrl(p.image_url)}" alt="${escapeHtml(p.name)}" width="600" height="800" loading="lazy" decoding="async">
+        ${p.image_url_2 && CAN_HOVER ? `<img class="img-alt" src="${thumbUrl(p.image_url_2)}" alt="" width="600" height="800" loading="lazy" decoding="async">` : ''}
         ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
         ${Number(p.stock) <= 0 ? `<span class="badge-soldout">Sold Out</span>` : ''}
       </div>
@@ -243,9 +270,24 @@
         <div class="product-price">${priceHtml(p)}</div>
         <div class="card-stars" data-stars="${p.id}"></div>
       </div>
-    </a>
-  `).join('');
-  hydrateCardStars(grid);
+    </a>`;
+
+  box.innerHTML = groups.map(g => {
+    const shown = cap ? g.items.slice(0, cap) : g.items;
+    const more = g.items.length > shown.length || g.all;
+    return `
+    <section class="section home-fabric-section">
+      <div class="container">
+        <div class="section-head">
+          <h2>${escapeHtml(g.title)}</h2>
+          <div class="stitch-divider"></div>
+        </div>
+        <div class="product-grid">${shown.map(card).join('')}</div>
+        ${more ? `<div class="home-viewall"><a class="btn btn-outline-dark" href="${g.href}">${escapeHtml(g.all || 'View All ' + g.title)}</a></div>` : ''}
+      </div>
+    </section>`;
+  }).join('');
+  hydrateCardStars(box);
 })();
 
 let BANNER_SCREEN_WAS_MOBILE = null;
@@ -392,8 +434,6 @@ window.addEventListener('resize', () => {
     if (BANNER_SCREEN_WAS_MOBILE !== null && nowMobile !== BANNER_SCREEN_WAS_MOBILE) loadBanners();
   }, 250);
 }, { passive: true });
-
-loadBanners();
 
 loadBanners();
 

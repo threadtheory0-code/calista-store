@@ -19,7 +19,7 @@
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="/styles.css?v=20261014">
+<link rel="stylesheet" href="/styles.css?v=20261021">
 <script>
 !function (w, d, t) {
   w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
@@ -94,7 +94,7 @@
   </button>
 </div>
 
-<script src="/app.js?v=20261014"></script>
+<script src="/app.js?v=20261021"></script>
 <script>
 (async function () {
   const params = new URLSearchParams(location.search);
@@ -121,11 +121,13 @@
 
   root.innerHTML = `
     <div class="product-gallery-slider">
-      <div class="gallery-track" id="gallery-track">
-        ${galleryImages.map((img, i) => `<div class="gallery-slide"><img src="${fullUrl(img)}" alt="${product.name}${galleryImages.length > 1 ? ' — photo ' + (i + 1) : ''}" ${i === 0 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async"></div>`).join('')}
+      <div class="gallery-stage">
+        <div class="gallery-track" id="gallery-track">
+          ${galleryImages.map((img, i) => `<div class="gallery-slide"><img src="${fullUrl(img)}" alt="${product.name}${galleryImages.length > 1 ? ' — photo ' + (i + 1) : ''}" ${i === 0 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async"></div>`).join('')}
+        </div>
+        <button class="gallery-arrow gallery-arrow-left" id="gallery-prev" aria-label="Previous image">‹</button>
+        <button class="gallery-arrow gallery-arrow-right" id="gallery-next" aria-label="Next image">›</button>
       </div>
-      <button class="gallery-arrow gallery-arrow-left" id="gallery-prev" aria-label="Previous image">‹</button>
-      <button class="gallery-arrow gallery-arrow-right" id="gallery-next" aria-label="Next image">›</button>
       <div class="gallery-dots" id="gallery-dots"></div>
     </div>
     <div class="product-copy">
@@ -134,12 +136,13 @@
       <div class="price-row">${priceHtml(product)}</div>
       <div id="product-stars" class="product-stars"></div>
       ${stockNote}
-      <div class="desc">${cleanDescription(product.description)}</div>
       <button class="btn cart-btn" id="add-btn" style="width:100%;" ${soldOut ? 'disabled' : ''}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         <span class="cart-btn-text">${soldOut ? 'Sold Out' : 'Add to Cart'}</span>
       </button>
+      <div id="trust-panel-mount"></div>
       <div id="fbt-mount"></div>
+      <div class="desc">${cleanDescription(product.description)}</div>
       <div class="whatsapp-actions">
         <a class="whatsapp-inquire-btn" id="whatsapp-inquire" href="#" target="_blank" rel="noopener">
           <span class="whatsapp-icon-circle">
@@ -160,7 +163,6 @@
           </span>
         </a>
       </div>
-      <div id="trust-panel-mount"></div>
     </div>
   `;
 
@@ -236,7 +238,7 @@
   stickyBar.style.display = '';
   const effectivePrice = product.sale_price || product.price;
   const waMessage = `Hi, I'm interested in ${product.name} (${money(effectivePrice)}). Can you share more details? ${window.location.href}`;
-  document.getElementById('whatsapp-inquire').href = `https://wa.me/923026255682?text=${encodeURIComponent(waMessage)}`;
+  document.getElementById('whatsapp-inquire').href = waUrl(waMessage);
 
   stickyBtn.addEventListener('click', () => {
     addCurrentToCart();
@@ -278,9 +280,11 @@
   async function loadRelatedProducts(currentProduct) {
     const root = document.getElementById('related-root');
     const all = await getProducts();
-    const related = all
-      .filter(p => p.id !== currentProduct.id && p.fabric === currentProduct.fabric)
-      .slice(0, 4);
+    // Same fabric first; topped up from other fabrics so the row is never
+    // one lonely card. Sold-out pieces are left out — they can't convert.
+    const inStock = all.filter(p => p.id !== currentProduct.id && !(Number(p.stock) <= 0 && p.stock !== null && p.stock !== undefined));
+    const same = inStock.filter(p => p.fabric === currentProduct.fabric);
+    const related = same.concat(inStock.filter(p => p.fabric !== currentProduct.fabric)).slice(0, 4);
     if (related.length === 0) return;
     root.innerHTML = `
       <div class="section-head" style="margin-bottom:24px;">
@@ -291,7 +295,7 @@
         ${related.map(p => `
           <a class="product-card" href="/product.html?slug=${p.slug}">
             <div class="product-thumb">
-              <img src="${thumbUrl(p.image_url)}" alt="${p.name}" loading="lazy" decoding="async">
+              <img src="${thumbUrl(p.image_url)}" alt="${p.name}" width="600" height="800" loading="lazy" decoding="async">
               ${p.sale_price ? `<span class="badge-sale">SALE</span>` : ''}
             </div>
             <div class="product-info">

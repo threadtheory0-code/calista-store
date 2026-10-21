@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20261014">
+<link rel="stylesheet" href="/styles.css?v=20261021">
 </head>
 <body>
 
@@ -287,6 +287,11 @@
         stock number from the Products tab.
       </p>
       <form class="admin-form" id="trust-form">
+        <div class="full">
+          <label>WhatsApp number (chat button, “Ask About This Item”)</label>
+          <input name="whatsapp_number" inputmode="tel" placeholder="0302 6255682">
+          <p style="font-size:11.5px; color:var(--charcoal-soft); margin-top:4px;">Type it as you would dial it — <code>03XX XXXXXXX</code> or <code>+92 3XX XXXXXXX</code>. Leave empty to keep 0302 6255682. Changes every WhatsApp button on the site.</p>
+        </div>
         <div>
           <label>Show “Only N left” when stock drops to</label>
           <input name="low_stock_threshold" type="number" min="0" max="20" value="3">
@@ -383,6 +388,21 @@
       <div><label>Khaddar</label><input type="file" class="site-tile-input" data-key="tile_khaddar" accept="image/*"><div class="image-preview-row" id="preview-tile_khaddar"></div></div>
       <div><label>Silk</label><input type="file" class="site-tile-input" data-key="tile_silk" accept="image/*"><div class="image-preview-row" id="preview-tile_silk"></div></div>
     </div>
+
+    <h3 class="display" style="font-size:20px; margin:32px 0 6px;">Products on the homepage</h3>
+    <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:12px; line-height:1.55;">
+      Tick the fabrics whose products appear under “Shop by Fabric” on the homepage — each gets its own row with a
+      <b>View all</b> button. Unticked fabrics still show their tile and menu tab; their products are just not on the homepage.
+      Nothing ticked = one “Best Sellers” row from the whole range.
+    </p>
+    <div id="home-fabrics-root" style="display:flex; flex-wrap:wrap; gap:8px 18px; margin-bottom:14px; font-size:13.5px;">Loading…</div>
+    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:10px;">
+      <label style="font-size:13px; margin:0;">Products per row on the homepage</label>
+      <input type="number" id="home-per-fabric" min="0" max="60" placeholder="12" style="width:80px; padding:8px 10px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px;">
+      <span style="font-size:11.5px; color:var(--charcoal-soft);">0 = show all (slower on phones)</span>
+    </div>
+    <button class="btn btn-outline-dark" id="save-home-fabrics-btn" type="button" style="margin-bottom:6px;">Save Homepage Products</button>
+    <div id="home-fabrics-msg" style="font-size:13px; margin-bottom:10px;"></div>
 
     <h3 class="display" style="font-size:20px; margin:32px 0 6px;">Follow @calista Gallery</h3>
     <p style="font-size:13px; color:var(--charcoal-soft); margin-bottom:6px;">
@@ -548,7 +568,7 @@
   </div>
 </div>
 
-<script src="/app.js?v=20261014"></script>
+<script src="/app.js?v=20261021"></script>
 <script>
 document.querySelectorAll('.admin-tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -2678,6 +2698,7 @@ async function loadSiteSettings() {
       document.getElementById('tiktok-pixel-id-input').value = SITE_SETTINGS.tiktok_pixel_id;
     }
     fillTrustForm(SITE_SETTINGS);
+    renderHomeFabrics();
   } catch (e) {
     // fine if settings haven't been created yet
   }
@@ -2822,11 +2843,12 @@ document.getElementById('review-form').addEventListener('submit', async (e) => {
 });
 
 /* ---------------- Trust settings ---------------- */
-const TRUST_KEYS = ['low_stock_threshold','trust_badges','cod_confirm_note','exchange_note','reviews_enabled','bag_reminder','fbt_enabled','fbt_title'];
+const TRUST_KEYS = ['whatsapp_number','low_stock_threshold','trust_badges','cod_confirm_note','exchange_note','reviews_enabled','bag_reminder','fbt_enabled','fbt_title'];
 
 function fillTrustForm(s) {
   const f = document.getElementById('trust-form');
   if (!f) return;
+  f.whatsapp_number.value = s.whatsapp_number || '';
   if (s.low_stock_threshold) f.low_stock_threshold.value = s.low_stock_threshold;
   f.trust_badges.value = (s.trust_badges === undefined || s.trust_badges === null)
     ? ['Cash on Delivery|Pay the courier when your parcel arrives',
@@ -2847,6 +2869,19 @@ document.getElementById('trust-form').addEventListener('submit', async (e) => {
   const msg = document.getElementById('trust-form-msg');
   const body = {};
   TRUST_KEYS.forEach(k => { body[k] = String(f[k].value).trim(); });
+  if (body.whatsapp_number) {
+    let d = body.whatsapp_number.replace(/[^0-9]/g, '');
+    if (d.startsWith('00')) d = d.slice(2);
+    if (d.startsWith('0')) d = '92' + d.slice(1);
+    else if (d.length === 10 && d.startsWith('3')) d = '92' + d;
+    if (d.length < 10 || d.length > 15) {
+      msg.style.color = 'var(--gold)';
+      msg.textContent = 'That WhatsApp number doesn’t look right — use 03XX XXXXXXX.';
+      return;
+    }
+    body.whatsapp_number = d;
+    f.whatsapp_number.value = '+' + d;
+  }
   msg.style.color = 'var(--charcoal-soft)';
   msg.textContent = 'Saving…';
   try {
@@ -2856,6 +2891,46 @@ document.getElementById('trust-form').addEventListener('submit', async (e) => {
     Object.assign(SITE_SETTINGS, body);
     msg.style.color = 'var(--gold)';
     msg.textContent = 'Saved ✓ — live on the site straight away.';
+  } catch (err) {
+    msg.style.color = 'var(--gold)';
+    msg.textContent = 'Error: ' + err.message;
+  }
+});
+
+/* ---------------- Homepage products: which fabrics get a row ---------------- */
+async function renderHomeFabrics() {
+  const root = document.getElementById('home-fabrics-root');
+  if (!root) return;
+  let fabrics = [];
+  try { fabrics = await (await fetch('/api/fabric-categories', { cache: 'no-store' })).json(); } catch (e) {}
+  if (!Array.isArray(fabrics) || !fabrics.length) { root.textContent = 'No fabrics yet — add them in the Fabrics tab.'; return; }
+  const on = String(SITE_SETTINGS.home_fabrics || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  root.innerHTML = fabrics.map(f => `
+    <label style="display:flex; align-items:center; gap:7px; margin:0; cursor:pointer;">
+      <input type="checkbox" class="home-fabric-cb" value="${escapeHtml(f.name)}" ${on.includes(String(f.name).toLowerCase()) ? 'checked' : ''}>
+      ${escapeHtml(SITE_SETTINGS['fabric_label_' + f.name] || f.name)}
+    </label>`).join('');
+  const per = document.getElementById('home-per-fabric');
+  if (SITE_SETTINGS.home_per_fabric !== undefined && SITE_SETTINGS.home_per_fabric !== null) per.value = SITE_SETTINGS.home_per_fabric;
+}
+
+document.getElementById('save-home-fabrics-btn').addEventListener('click', async () => {
+  const msg = document.getElementById('home-fabrics-msg');
+  const payload = {
+    home_fabrics: [...document.querySelectorAll('.home-fabric-cb:checked')].map(cb => cb.value).join(','),
+    home_per_fabric: String(document.getElementById('home-per-fabric').value || '').trim()
+  };
+  msg.style.color = 'var(--charcoal-soft)';
+  msg.textContent = 'Saving…';
+  try {
+    await api('/api/admin/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    });
+    Object.assign(SITE_SETTINGS, payload);
+    msg.style.color = 'var(--gold)';
+    msg.textContent = payload.home_fabrics
+      ? 'Saved ✓ — homepage now shows: ' + payload.home_fabrics.split(',').join(', ')
+      : 'Saved ✓ — nothing ticked, homepage shows one Best Sellers row.';
   } catch (err) {
     msg.style.color = 'var(--gold)';
     msg.textContent = 'Error: ' + err.message;

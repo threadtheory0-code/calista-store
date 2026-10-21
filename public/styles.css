@@ -2113,3 +2113,22 @@ body { overflow-x: clip; max-width: 100%; }
   .fbt-thumb { flex-basis: 70px; }
   .fbt-add { min-height: 52px; }
 }
+
+/* ============================================================
+   Round Oct-21
+   ============================================================ */
+/* Product gallery: the arrows were centred on the whole left column,
+   which on desktop stretches to the height of the text column — so they
+   floated far below the photo. They now sit on the photo itself. */
+.product-gallery-slider { align-self: start; }
+.gallery-stage { position: relative; }
+.product-copy #add-btn { margin-top: 20px; }
+.product-detail .desc { margin-top: 22px; }
+
+/* Homepage product rows, one per fabric ticked in Admin. */
+.home-fabric-section + .home-fabric-section { padding-top: 0; }
+.home-viewall { display: flex; justify-content: center; margin-top: 28px; }
+@media (max-width: 720px) {
+  .home-viewall { margin-top: 18px; }
+  .home-viewall .btn { width: 100%; max-width: 340px; }
+}
