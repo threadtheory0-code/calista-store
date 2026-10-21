@@ -329,6 +329,13 @@ async function readFbtRows(env) {
   }
 }
 
+function mixHash(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15;
+  return h >>> 0;
+}
+
 async function boughtTogether(env, slug, limit = 3) {
   const rows = await readFbtRows(env);
   const me = rows.find(r => r.slug === slug);
@@ -372,7 +379,16 @@ async function boughtTogether(env, slug, limit = 3) {
     if (fab(r.fabric) !== fab(me.fabric)) score += 3;
     scored.push({ r, score, type, match: hit ? hit.name : null });
   }
-  scored.sort((a, b) => b.score - a.score || (a.r.sort_order || 0) - (b.r.sort_order || 0) || b.r.id - a.r.id);
+  /* Equal scores used to be settled by catalogue order, so the same three or
+     four bags (top of the list, or neutral black/white ones that match
+     everything) won for every suit. Ties are now settled by a stable hash of
+     this suit + that item: each suit gets its own spread across all equally
+     good matches, and the same suit always shows the same set. Bags that
+     have already been shown a lot don't matter here — the hash spreads them
+     evenly across the catalogue on its own. */
+  const seedOf = (r) => mixHash(me.id + ':' + r.id);
+  scored.forEach(s => { s.seed = seedOf(s.r); });
+  scored.sort((a, b) => b.score - a.score || a.seed - b.seed);
 
   let picked = [];
   if (ladiesMode) {
