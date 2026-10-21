@@ -1013,7 +1013,7 @@ form.checkout-form input, form.checkout-form select, form.checkout-form textarea
   max-width: 1180px;
   margin: 0 auto 30px;
 }
-.footer-grid h4 {
+.footer-grid h4, .footer-grid h3 {
   color: var(--gold-soft);
   font-size: 13px;
   letter-spacing: 0.08em;
@@ -1334,7 +1334,7 @@ html { -webkit-text-size-adjust: 100%; }
   /* ---- Footer ---- */
   .site-footer { padding: 34px 16px 22px; margin-top: 40px; }
   .footer-grid { gap: 26px; margin-bottom: 18px; }
-  .footer-grid h4 { font-size: 11.5px; margin-bottom: 10px; }
+  .footer-grid h4, .footer-grid h3 { font-size: 11.5px; margin-bottom: 10px; }
   .footer-grid li { font-size: 13.5px; margin-bottom: 12px; }
   .footer-grid p { font-size: 13px; }
   .footer-bottom { font-size: 11px; padding-top: 16px; }
@@ -2132,3 +2132,41 @@ body { overflow-x: clip; max-width: 100%; }
   .home-viewall { margin-top: 18px; }
   .home-viewall .btn { width: 100%; max-width: 340px; }
 }
+
+/* ---------- PageSpeed round (mobile) ---------- */
+/* Gold text on the ivory ground was 2.9:1 — below the 4.5:1 minimum for
+   small text. Prices and "Shop now" use a deeper step of the same gold. */
+:root { --gold-text: #8A6A24; }
+.sale { color: var(--gold-text); }
+.tile-label .tile-cta { color: var(--gold-text); }
+
+/* Hold the banner's space from the first paint, so the page below it no
+   longer jumps down when the photo arrives (layout shift was 0.405).
+   --hero-hpw is height ÷ width of the banner, remembered from the last
+   visit; 1.5 matches an 800×1200 phone banner. */
+.hero.has-banners .hero-fallback { display: none; }
+.hero.has-banners:not(.hero-ready) {
+  height: calc(min(100vw * var(--hero-hpw, 1.5), 88vh) + var(--hero-dots-h, 29px));
+  overflow: hidden;
+}
+.hero.has-banners.hero-single { --hero-dots-h: 0px; }
+@media (min-width: 721px) {
+  .hero.has-banners:not(.hero-ready) {
+    height: calc(min(100vw * var(--hero-hpw-d, 0.42), 74vh) + var(--hero-dots-h, 29px));
+  }
+}
+
+/* Banner dots: 24px tap targets, the visible dot drawn inside. */
+.hero .hero-dots { gap: 2px; padding: 3px 0 2px; }
+.hero .hero-dot {
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 0;
+  background: none !important; transform: none !important;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.hero .hero-dot::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(10, 10, 10, 0.18);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.hero .hero-dot.active::before { background: var(--gold); transform: scale(1.25); }
+@media (max-width: 720px) { .hero .hero-dots { padding: 3px 0 2px; } }

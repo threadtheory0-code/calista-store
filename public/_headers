@@ -9,11 +9,13 @@
 /uploads/*
   Cache-Control: public, max-age=31536000, immutable
 
+# Every page loads these as /styles.css?v=DATE and /app.js?v=DATE, and the
+# date is changed whenever the file changes — so they can be kept a year.
 /styles.css
-  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+  Cache-Control: public, max-age=31536000, immutable
 
 /app.js
-  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+  Cache-Control: public, max-age=31536000, immutable
 
 /*.html
   Cache-Control: public, max-age=0, must-revalidate
@@ -24,3 +26,6 @@
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Frame-Options: SAMEORIGIN
+  Cross-Origin-Opener-Policy: same-origin-allow-popups

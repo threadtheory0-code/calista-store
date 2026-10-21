@@ -91,6 +91,14 @@ function getBootstrap() {
   if (_boot) return Promise.resolve(_boot);
   if (_bootPromise) return _bootPromise;
 
+  // Shipped inside the page by the Worker — no request at all.
+  if (window.__BOOT && Array.isArray(window.__BOOT.products)) {
+    _boot = window.__BOOT;
+    const save = () => { try { localStorage.setItem(BOOT_STORE, JSON.stringify({ t: Date.now(), d: _boot })); } catch (e) {} };
+    if ('requestIdleCallback' in window) requestIdleCallback(save, { timeout: 4000 }); else setTimeout(save, 2000);
+    return Promise.resolve(_boot);
+  }
+
   const hit = _bootRead();
   const age = hit ? Date.now() - hit.t : Infinity;
 
@@ -199,6 +207,8 @@ async function getSettings() {
 /* The full row — every gallery photo and the description. The grid list
    only carries the two grid photos, which is why product pages showed 2. */
 async function getProduct(slug) {
+  const pre = window.__PRODUCT;
+  if (pre && pre.id && pre.slug === slug) return pre;
   try {
     const p = await apiDirect('/api/product?slug=' + encodeURIComponent(slug || ''));
     if (p && p.id) return p;

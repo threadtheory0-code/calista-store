@@ -24,14 +24,15 @@
   "paymentAccepted": "Cash on Delivery"
 }
 </script>
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<link rel="preconnect" href="https://cdn.shopify.com" crossorigin>
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+<link rel="dns-prefetch" href="https://cdn.shopify.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="/styles.css?v=20261021">
+<link rel="stylesheet" href="/styles.css?v=20261022">
+<script>try{var s=document.documentElement.style,m=localStorage.getItem('cs_hero_hpw_m'),d=localStorage.getItem('cs_hero_hpw_d');if(m)s.setProperty('--hero-hpw',m);if(d)s.setProperty('--hero-hpw-d',d)}catch(e){}</script>
 <script>
 !function (w, d, t) {
   w.TikTokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var s=d.createElement("script");s.type="text/javascript",s.async=!0,s.src=r+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(s,a)};
@@ -39,12 +40,13 @@
   // Deferred to idle: the pixel is analytics, not content — loading it
   // after first paint keeps it out of the critical path.
   var startPixel = function () {
-    fetch('/api/tiktok-pixel-id').then(function(r){ return r.json(); }).then(function(d){
+    (typeof getBootstrap === 'function' ? getBootstrap().then(function(b){ return { id: b && b.pixel }; }) : fetch('/api/tiktok-pixel-id').then(function(r){ return r.json(); })).then(function(d){
       if (d && d.id) { ttq.load(d.id); ttq.page(); }
     }).catch(function(){});
   };
-  if ('requestIdleCallback' in w) w.requestIdleCallback(startPixel, { timeout: 3500 });
-  else w.addEventListener('load', function(){ setTimeout(startPixel, 1200); });
+  // After the page has finished loading and gone quiet — events fired
+  // earlier (ViewContent, AddToCart) are queued by the stub and still sent.
+  w.addEventListener('load', function(){ setTimeout(function(){ if ('requestIdleCallback' in w) w.requestIdleCallback(startPixel, { timeout: 2000 }); else startPixel(); }, 1500); });
 }(window, document, 'ttq');
 </script>
 </head>
@@ -87,6 +89,7 @@
   <div class="drawer-links" id="drawer-links"></div>
   <a href="/cart.html" class="drawer-tab-link">Cart</a>
 </nav>
+<main id="main">
 <section class="hero" id="hero">
   <div class="hero-fallback">
     <div class="hero-slide-content">
@@ -200,6 +203,7 @@
     </a>
   </div>
 </section>
+</main>
 
 <footer class="site-footer">
   <div class="footer-grid">
@@ -210,14 +214,14 @@
       </p>
     </div>
     <div>
-      <h4>Shop</h4>
+      <h3>Shop</h3>
       <ul>
         <li><a href="/collection.html?view=new">New Arrivals</a></li>
         <li><a href="/cart.html">Cart</a></li>
       </ul>
     </div>
     <div>
-      <h4>Support</h4>
+      <h3>Support</h3>
       <ul>
         <li><a href="#">Return &amp; Exchange</a></li>
         <li><a href="#">Contact Us</a></li>
@@ -227,7 +231,7 @@
   <div class="footer-bottom">&copy; 2026 Calista. Built on Cloudflare Pages.</div>
 </footer>
 
-<script src="/app.js?v=20261021"></script>
+<script src="/app.js?v=20261022"></script>
 <script>
 /* Homepage rows. Admin → Site → "Products on the homepage" ticks which
    fabrics get a row here; the rest are only reached through their tile or
@@ -304,9 +308,12 @@ let HERO = { slides: [], i: 0, timer: null };
 async function loadBanners() {
   const hero = document.getElementById('hero');
   if (!hero) return;
+  // The Worker marks the hero when banners exist so CSS can hold their
+  // space; release it if anything below goes wrong.
+  const release = () => hero.classList.add('hero-ready');
   try {
     const all = await apiCached('/api/banners');
-    if (!Array.isArray(all) || all.length === 0) return;
+    if (!Array.isArray(all) || all.length === 0) { hero.classList.remove('has-banners'); return; }
 
     const onMobile = window.matchMedia('(max-width: 720px)').matches;
     const forThisScreen = all.filter(b => {
@@ -357,18 +364,26 @@ async function loadBanners() {
     photo.addEventListener('load', () => {
       document.getElementById('hero-frame').classList.remove('hero-loading');
       photo.classList.add('is-in');
+      if (!hero.classList.contains('hero-ready') && photo.naturalWidth) {
+        try { localStorage.setItem(onMobile ? 'cs_hero_hpw_m' : 'cs_hero_hpw_d', (photo.naturalHeight / photo.naturalWidth).toFixed(4)); } catch (e) {}
+      }
+      release();
     });
     photo.addEventListener('error', () => {
       document.getElementById('hero-frame').classList.remove('hero-loading');
+      release();
     });
+    setTimeout(release, 5000);
 
     hero.querySelectorAll('.hero-dot').forEach(dot => {
       dot.addEventListener('click', () => showHeroSlide(Number(dot.dataset.dot), true));
     });
 
     showHeroSlide(0, false);
+    if (!HERO.slides[0] || !HERO.slides[0].photo) release();
     startHeroRotation();
   } catch (e) {
+    hero.classList.remove('has-banners');
     // Leave the text fallback in place — the rest of the page still works.
   }
 }
@@ -385,9 +400,12 @@ function showHeroSlide(i, fromClick) {
   if (!photo) return;
 
   if (s.photo && photo.getAttribute('src') !== s.photo) {
-    photo.classList.remove('is-in');
+    // First banner shows straight away (no fade) — it is the page's main
+    // picture, and a fade-in only delays when it counts as painted.
+    if (HERO.shown) photo.classList.remove('is-in'); else photo.classList.add('is-in');
     photo.src = s.photo;
   }
+  HERO.shown = true;
   photo.style.display = s.photo ? '' : 'none';
   // A banner with no artwork for this screen still needs a frame to sit in.
   document.getElementById('hero-frame').classList.toggle('no-photo', !s.photo);
