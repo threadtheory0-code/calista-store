@@ -576,11 +576,124 @@ async function purgeApiCache(origin, env) {
   await Promise.allSettled(keys.map(k => cache.delete(new Request(k))));
 }
 
+/* ============================================================
+   PAGE SHELL
+   The homepage, collection and product pages used to arrive as an empty
+   template: the browser had to download app.js, then ask /api/bootstrap,
+   then build the banner <img> before the main photo could even start
+   downloading (PageSpeed: "LCP request not discoverable", 2.4 s chain).
+   The Worker now streams the same HTML with the data already inside it
+   and a preload for the first banner / product photo, so that photo
+   starts downloading with the page itself.
+   ============================================================ */
+const SHELL_PAGES = {
+  '/': 'home', '/index': 'home', '/index.html': 'home',
+  '/collection': 'list', '/collection.html': 'list',
+  '/product': 'product', '/product.html': 'product'
+};
+const SECURITY_HEADERS = {
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups'
+};
+
+function inlineJson(o) {
+  return JSON.stringify(o).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
+function attrSafe(s) { return String(s == null ? '' : s).replace(/"/g, '\u201d').replace(/[<>]/g, ''); }
+function escAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+// Same rule as fullUrl() in app.js — the preload must match the <img> exactly.
+function serverFullImg(u) {
+  if (!u || typeof u !== 'string') return '';
+  if (u.indexOf('/uploads/') === 0) return u;
+  if (u.indexOf('cdn.shopify.com') > -1) return u + (u.indexOf('?') > -1 ? '&' : '?') + 'width=1200';
+  return cdnRewriteServer(u);
+}
+
+async function renderShell(worker, request, env, ctx, url, kind) {
+  // Never answer 304 for the shell: the data inside it changes with stock.
+  const h = new Headers(request.headers);
+  h.delete('if-none-match'); h.delete('if-modified-since');
+  const pageP = env.ASSETS.fetch(new Request(url.toString(), { headers: h, redirect: 'manual' }));
+  const bootP = worker.fetch(new Request(url.origin + '/api/bootstrap'), env, ctx)
+    .then(r => r.ok ? r.json() : null).catch(() => null);
+  const slug = url.searchParams.get('slug');
+  const prodP = (kind === 'product' && slug)
+    ? worker.fetch(new Request(url.origin + '/api/product?slug=' + encodeURIComponent(slug)), env, ctx)
+        .then(r => r.ok ? r.json() : null).catch(() => null)
+    : Promise.resolve(null);
+
+  const page = await pageP;
+  if (page.status !== 200 || (page.headers.get('content-type') || '').indexOf('text/html') === -1) return page;
+  const [boot, prodRow] = await Promise.all([bootP, prodP]);
+  if (!boot || boot.error || !Array.isArray(boot.products)) return page;
+  const product = prodRow && prodRow.id ? prodRow : null;
+
+  let head = '';
+  const banners = Array.isArray(boot.banners) ? boot.banners : [];
+  if (kind === 'home' && banners.length) {
+    const pick = (dev) => {
+      const l = banners.filter(b => { const d = bannerDevice(b.device); return d === 'both' || d === dev; });
+      return (l.length ? l : banners)[0];
+    };
+    const m = pick('mobile'), d = pick('desktop');
+    const mPhoto = m && !m.mobile_fabric_source ? (m.image_url_mobile || m.image_url) : '';
+    const dPhoto = d ? d.image_url : '';
+    if (mPhoto) head += `<link rel="preload" as="image" href="${escAttr(mPhoto)}" media="(max-width: 720px)" fetchpriority="high">`;
+    if (dPhoto) head += `<link rel="preload" as="image" href="${escAttr(dPhoto)}" media="(min-width: 721px)" fetchpriority="high">`;
+  }
+  if (product && product.image_url) {
+    head += `<link rel="preload" as="image" href="${escAttr(serverFullImg(product.image_url))}" fetchpriority="high">`;
+  }
+
+  const data = `<script>window.__BOOT=${inlineJson(boot)};${product ? 'window.__PRODUCT=' + inlineJson(product) + ';' : ''}</script>`;
+  let rw = new HTMLRewriter()
+    .on('script[src^="/app.js"]', { element(el) { el.before(data, { html: true }); } })
+    .on('link[rel="canonical"]', { element(el) {
+      el.setAttribute('href', url.origin + (kind === 'home' ? '/' : url.pathname + (product ? '?slug=' + encodeURIComponent(product.slug) : '')));
+    } });
+  if (head) rw = rw.on('meta[charset]', { element(el) { el.after(head, { html: true }); } });
+  if (kind === 'home' && banners.length) {
+    rw = rw.on('#hero', { element(el) { el.setAttribute('class', 'hero has-banners' + (banners.length < 2 ? ' hero-single' : '')); } });
+  }
+  if (product) {
+    // Real title / description / photo in the HTML itself, so WhatsApp and
+    // Facebook link previews show the product (they don't run JavaScript).
+    const desc = attrSafe(stripTags(product.description).replace(/\s+/g, ' ').trim().slice(0, 155)) ||
+      'Shop premium unstitched suits at Calista, cash on delivery across Pakistan.';
+    const img = serverFullImg(product.image_url);
+    const absImg = img ? new URL(img, url.origin).href : '';
+    const name = attrSafe(product.name);
+    const set = (sel, attr, val) => { rw = rw.on(sel, { element(el) { el.setAttribute(attr, val); } }); };
+    rw = rw.on('title', { element(el) { el.setInnerContent(product.name + ' — Calista'); } });
+    set('meta[name="description"]', 'content', desc);
+    set('meta[property="og:title"]', 'content', name);
+    set('meta[property="og:description"]', 'content', desc);
+    if (absImg) set('meta[property="og:image"]', 'content', absImg);
+  }
+
+  const out = rw.transform(page);
+  const res = new Response(out.body, out);
+  res.headers.delete('ETag');
+  res.headers.delete('Last-Modified');
+  res.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+  Object.entries(SECURITY_HEADERS).forEach(([k, v]) => res.headers.set(k, v));
+  return res;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const cache = caches.default;
     const isGet = request.method === 'GET';
+
+    const shell = isGet && SHELL_PAGES[url.pathname];
+    if (shell) {
+      try { return await renderShell(this, request, env, ctx, url, shell); }
+      catch (e) { return env.ASSETS.fetch(request); }
+    }
 
     // 1. Serve a cached copy when we have one.
     if (isGet && isCacheableApi(url.pathname)) {
@@ -1681,7 +1794,8 @@ export default {
           env.DB.prepare('SELECT product_id, COUNT(*) AS count, AVG(rating) AS average FROM reviews WHERE is_approved = 1 AND product_id IS NOT NULL GROUP BY product_id')
         ]);
         const settings = {};
-        (rs[3].results || []).forEach(r => { settings[r.key] = r.value; });
+        // Courier credentials share this table — never send them to the browser.
+        (rs[3].results || []).forEach(r => { if (!String(r.key).startsWith('postex_')) settings[r.key] = r.value; });
         const reviews = {};
         (rs[5].results || []).forEach(r => {
           reviews[r.product_id] = { count: r.count, average: Math.round(r.average * 10) / 10 };
