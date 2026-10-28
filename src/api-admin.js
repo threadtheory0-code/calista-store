@@ -85,7 +85,9 @@ const ORDER_SELECT = `
   FROM orders`;
 
 const PRODUCT_SELECT = `
-  SELECT id, name, slug, fabric, price, sale_price, stock, is_active AS active, image_url
+  SELECT id, name, slug, fabric, price, sale_price, stock, is_active AS active,
+         COALESCE(NULLIF(image_url, ''), NULLIF(image_url_2, ''),
+                  json_extract(CASE WHEN json_valid(images_json) THEN images_json END, '$[0]'), '') AS image_url
   FROM products`;
 
 // Sales exclude orders that never turned into money.
