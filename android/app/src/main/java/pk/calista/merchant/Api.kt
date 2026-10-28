@@ -231,6 +231,9 @@ object Api {
             client.newCall(b.build()).execute().use { r ->
                 val text = r.body?.string().orEmpty()
                 if (r.code == 401) throw ApiError("Admin token rejected (401)")
+                if (r.code == 404 && !text.trimStart().startsWith("{")) {
+                    throw ApiError("404 · " + base + " is not running the Calista Worker. Check the store address.")
+                }
                 if (!r.isSuccessful) {
                     val msg = runCatching { JSONObject(text).optString("error") }.getOrNull()
                     throw ApiError(if (!msg.isNullOrBlank()) msg else "HTTP " + r.code + " " + text.take(120))

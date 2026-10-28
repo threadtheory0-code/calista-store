@@ -521,7 +521,10 @@ class AppState(private val ctx: Context) {
     // ---- connect / lock / prefs -------------------------------------------
 
     fun connect(url: String, token: String) {
-        val clean = url.trim().trimEnd('/').let { if (it.startsWith("http")) it else "https://" + it }
+        // Keep only https://host — a pasted "…/admin.html" or "…/products" turns every call into a 404.
+        val withScheme = url.trim().let { if (it.startsWith("http")) it else "https://" + it }
+        val host = runCatching { Uri.parse(withScheme).host }.getOrNull()?.removePrefix("www.")?.lowercase()
+        val clean = if (host.isNullOrBlank()) withScheme.trimEnd('/') else "https://" + host
         storeUrl = clean
         adminToken = token.trim()
         Api.base = storeUrl
