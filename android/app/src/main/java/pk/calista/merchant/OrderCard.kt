@@ -30,10 +30,10 @@ object OrderCard {
     private const val THUMB_W = 168
     private const val THUMB_H = 210
 
-    suspend fun build(ctx: Context, o: Order, photo: (String) -> String): File? =
+    suspend fun build(ctx: Context, o: Order, photo: (LineItem) -> String): File? =
         withContext(Dispatchers.IO) {
             runCatching {
-                val shots = o.items.map { load(photo(it.name)) }
+                val shots = o.items.map { load(ctx, photo(it)) }
                 val h = PAD + 150 + o.items.size * ROW + 250
                 val bmp = Bitmap.createBitmap(W, h, Bitmap.Config.ARGB_8888)
                 val c = Canvas(bmp)
@@ -181,10 +181,26 @@ object OrderCard {
         }
     }
 
-    private fun load(url: String): Bitmap? {
+    /**
+     * Same loader (and cache) the app's own thumbnails use, so anything visible in the app
+     * also lands on the card — WebP, redirects and CDN links included. Plain download as a
+     * fallback.
+     */
+    private suspend fun load(ctx: Context, url: String): Bitmap? {
         if (url.isBlank()) return null
+        val viaCoil = runCatching {
+            val req = coil.request.ImageRequest.Builder(ctx)
+                .data(url)
+                .allowHardware(false)
+                .size(THUMB_W * 2, THUMB_H * 2)
+                .build()
+            val res = coil.Coil.imageLoader(ctx).execute(req)
+            val d = (res as? coil.request.SuccessResult)?.drawable
+            (d as? android.graphics.drawable.BitmapDrawable)?.bitmap
+        }.getOrNull()
+        if (viaCoil != null) return viaCoil
         return runCatching {
-            http.newCall(Request.Builder().url(url).build()).execute().use { r ->
+            http.newCall(Request.Builder().url(url).header("User-Agent", "CalistaMerchant/1.6").build()).execute().use { r ->
                 if (!r.isSuccessful) return@use null
                 val bytes = r.body?.bytes() ?: return@use null
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

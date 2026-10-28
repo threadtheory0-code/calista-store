@@ -181,7 +181,7 @@ fun OrderDetailScreen(s: AppState) {
                 Spacer(Modifier.height(8.dp))
                 for (li in o.items) {
                     Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Thumb(s.imageFor(li.name), 44, 56)
+                        Thumb(s.imageForItem(li), 44, 56)
                         Spacer(Modifier.width(11.dp))
                         Column(Modifier.weight(1f)) {
                             Text(li.name, color = T.text, style = body(13))

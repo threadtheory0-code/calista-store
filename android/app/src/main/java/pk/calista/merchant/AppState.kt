@@ -225,15 +225,28 @@ class AppState(private val ctx: Context) {
         else -> storeUrl.trimEnd('/') + "/" + url.trimStart('/')
     }
 
+    private fun norm(s: String): String =
+        s.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+
     fun imageFor(itemName: String): String {
-        val n = itemName.trim().lowercase()
+        val n = norm(itemName)
         if (n.isBlank()) return ""
-        val hit = products.firstOrNull { it.name.trim().lowercase() == n }
+        val hit = products.firstOrNull { norm(it.name) == n }
             ?: products.firstOrNull {
-                val pn = it.name.trim().lowercase()
+                val pn = norm(it.name)
                 pn.isNotBlank() && (n.contains(pn) || pn.contains(n))
             }
+            ?: products.firstOrNull { n.split(" ").firstOrNull()?.let { w -> w.length >= 3 && norm(it.name).startsWith(w) } == true }
         return abs(hit?.image ?: "")
+    }
+
+    /** Website orders carry the product id — match on that first, the name only as a fallback. */
+    fun imageForItem(li: LineItem): String {
+        if (li.productId > 0) {
+            val p = products.firstOrNull { it.id == li.productId }
+            if (p != null && p.image.isNotBlank()) return abs(p.image)
+        }
+        return imageFor(li.name)
     }
 
     // ---- lifecycle + polling ----------------------------------------------
@@ -698,7 +711,7 @@ class AppState(private val ctx: Context) {
         nAddress = src?.address ?: ""
         nCity = src?.city ?: ""
         nLines = copy?.items?.map {
-            DraftLine(it.productId, it.name, if (it.size == "-") "" else it.size, it.qty, it.price, imageFor(it.name))
+            DraftLine(it.productId, it.name, if (it.size == "-") "" else it.size, it.qty, it.price, imageForItem(it))
         } ?: emptyList()
         nDiscount = ""; nNote = ""; nSource = "whatsapp"; nStatus = "confirmed"
         backTo = screen
@@ -1183,7 +1196,7 @@ class AppState(private val ctx: Context) {
         scope.launch {
             cardBusy = true
             try {
-                val file = OrderCard.build(ctx, o) { imageFor(it) }
+                val file = OrderCard.build(ctx, o) { imageForItem(it) }
                 whatsApp(o, template)
                 if (file != null) pendingCard = Pair(o, file)
                 else flash("Photos could not be prepared — message opened without them")
