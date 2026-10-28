@@ -122,10 +122,6 @@
     </div>
 
     <h3 class="display" style="font-size:20px; margin-bottom:14px;">All Products</h3>
-    <div style="display:flex; gap:12px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
-      <input type="text" id="product-search" placeholder="Search products by name…" style="flex:1; min-width:200px; padding:9px 12px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px;">
-      <button class="admin-delete-btn" id="delete-selected-btn" style="display:none;">Delete Selected (<span id="selected-count">0</span>)</button>
-    </div>
     <div id="bulk-tag-bar" style="display:none; background:var(--ivory-warm); padding:12px 16px; margin-bottom:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
       <span style="font-size:13px;"><b id="bulk-selected-count">0</b> selected —</span>
       <button class="btn btn-outline-dark" data-tag="in_lawn_tab" style="padding:8px 14px; font-size:12px;">Add to Unstitched Lawn</button>
@@ -160,8 +156,21 @@
       <div id="auto-color-status" style="font-size:12.5px; margin-top:8px; color:var(--ink-green);"></div>
       <div id="color-report" style="font-size:12.5px; margin-top:8px;"></div>
     </div>
-    <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:10px;">
-      <input type="checkbox" id="select-all-products"> Select all products</label>
+    <div style="border:1px solid var(--line); padding:12px 16px; margin-bottom:10px; display:grid; gap:10px;">
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <select id="product-filter" style="padding:9px 10px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px; min-width:190px;">
+          <option value="all">All products</option>
+        </select>
+        <input type="search" id="product-search" placeholder="Search name, fabric or colour…" style="flex:1; min-width:200px; padding:9px 12px; border:1px solid var(--line); font-family:var(--font-body); font-size:13px;">
+        <button type="button" class="btn btn-outline-dark" id="product-filter-clear" style="padding:8px 14px; font-size:12px;">Clear</button>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:13px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="select-all-products"> <span id="select-all-label">Select all shown</span></label>
+        <span id="product-filter-count" style="color:var(--charcoal-soft);"></span>
+        <button class="admin-delete-btn" id="delete-selected-btn" style="display:none; margin-left:auto;">Delete Selected (<span id="selected-count">0</span>)</button>
+      </div>
+    </div>
     <p style="font-size:12px; color:var(--charcoal-soft); margin-bottom:10px;">
       Use ▲▼ to nudge a product's position, or type a number directly in the position box and press Enter to jump it there. Lower numbers show first.
     </p>
@@ -1315,6 +1324,9 @@ function renderProductsTable(products) {
   root.querySelectorAll('.product-select').forEach(cb => {
     cb.addEventListener('change', updateSelectedCount);
   });
+  const all = document.getElementById('select-all-products');
+  if (all) all.checked = false;
+  updateSelectedCount();
 
   root.querySelectorAll('.reorder-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -1470,7 +1482,9 @@ document.getElementById('bulk-fabric-select').addEventListener('change', async (
 document.getElementById('delete-selected-btn').addEventListener('click', async () => {
   const ids = [...document.querySelectorAll('.product-select:checked')].map(cb => Number(cb.value));
   if (ids.length === 0) return;
-  if (!confirm(`Delete ${ids.length} selected product(s)? This cannot be undone.`)) return;
+  const f = document.getElementById('product-filter');
+  const scope = f && f.value !== 'all' ? ` from "${f.options[f.selectedIndex].text.trim()}"` : '';
+  if (!confirm(`Delete ${ids.length} selected product(s)${scope}? This cannot be undone.`)) return;
   try {
     await api('/api/admin/products/bulk-delete', {
       method: 'POST',
@@ -1483,18 +1497,94 @@ document.getElementById('delete-selected-btn').addEventListener('click', async (
   }
 });
 
-document.getElementById('product-search').addEventListener('input', (e) => {
-  const q = e.target.value.toLowerCase();
-  const filtered = ALL_ADMIN_PRODUCTS.filter(p => p.name.toLowerCase().includes(q) || (p.fabric || '').toLowerCase().includes(q));
-  renderProductsTable(filtered);
+/* Category filter + search for All Products. Category tabs (Ladies / Gents)
+   hold a product when it was assigned by hand OR its fabric is in the tab's
+   fabric list — the same rule the storefront uses. */
+let PRODUCT_FILTER_TABS = [];
+const AUDIENCE_LABEL = { women: 'Ladies', men: 'Gents', all: 'Everyone' };
+const ADMIN_TYPE_RES = {
+  keyring: /\b(key ?rings?|key ?chains?|bag ?charms?)\b/i,
+  wallet: /\b(wallets?|card ?holders?)\b/i,
+  bag: /\b(hand ?bags?|bags?|totes?|clutch(es)?|pouch(es)?|purses?|crossbody|sling)\b/i
+};
+function adminProductType(p) {
+  const t = `${p.name} ${p.fabric || ''}`;
+  if (ADMIN_TYPE_RES.keyring.test(t)) return 'keyring';
+  if (ADMIN_TYPE_RES.wallet.test(t)) return 'wallet';
+  if (ADMIN_TYPE_RES.bag.test(t)) return 'bag';
+  return 'suit';
+}
+function inTab(p, t) {
+  return t.ids.has(Number(p.id)) || t.fabrics.has(String(p.fabric || '').trim().toLowerCase());
+}
+
+async function loadProductFilterOptions() {
+  const sel = document.getElementById('product-filter');
+  const keep = sel.value;
+  let tabs = [], fabrics = [];
+  try { tabs = await api('/api/admin/nav-tabs'); } catch (e) {}
+  try { fabrics = await api('/api/admin/fabric-categories'); } catch (e) {}
+  const assigned = await Promise.all(tabs.map(t => api('/api/admin/nav-tabs/products?tab_id=' + t.id).catch(() => [])));
+  PRODUCT_FILTER_TABS = tabs.map((t, i) => ({
+    id: t.id, label: t.label, gender: t.gender,
+    fabrics: new Set(String(t.fabrics || '').split(',').map(f => f.trim().toLowerCase()).filter(Boolean)),
+    ids: new Set((assigned[i] || []).map(Number))
+  }));
+  const genders = [...new Set(tabs.map(t => t.gender).filter(g => g && g !== 'all'))];
+  const opt = (v, label) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`;
+  sel.innerHTML = opt('all', 'All products')
+    + (genders.length ? `<optgroup label="Audience">${genders.map(g => opt('g:' + g, 'All ' + (AUDIENCE_LABEL[g] || g))).join('')}</optgroup>` : '')
+    + (tabs.length ? `<optgroup label="Category tabs">${tabs.map(t => opt('t:' + t.id, `${AUDIENCE_LABEL[t.gender] || t.gender} — ${t.label}`)).join('')}</optgroup>` : '')
+    + (fabrics.length ? `<optgroup label="Fabric">${fabrics.map(f => opt('f:' + f.name.toLowerCase(), f.name)).join('')}</optgroup>` : '')
+    + `<optgroup label="Type">${opt('k:suit', 'Suits & clothing')}${opt('k:bag', 'Bags')}${opt('k:wallet', 'Wallets')}${opt('k:keyring', 'Keyrings')}</optgroup>`
+    + `<optgroup label="Status">${opt('s:soldout', 'Sold out (stock 0)')}${opt('s:hidden', 'Hidden (not active)')}</optgroup>`;
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+}
+
+function matchesProductFilter(p, v) {
+  if (!v || v === 'all') return true;
+  const [kind, key] = [v.slice(0, 1), v.slice(2)];
+  if (kind === 'g') return PRODUCT_FILTER_TABS.some(t => (t.gender === key || t.gender === 'all') && inTab(p, t));
+  if (kind === 't') { const t = PRODUCT_FILTER_TABS.find(x => String(x.id) === key); return !!t && inTab(p, t); }
+  if (kind === 'f') return String(p.fabric || '').trim().toLowerCase() === key;
+  if (kind === 'k') return adminProductType(p) === key;
+  if (kind === 's') return key === 'soldout' ? Number(p.stock) <= 0 : !p.is_active;
+  return true;
+}
+
+function applyProductFilters() {
+  const v = document.getElementById('product-filter').value;
+  const q = document.getElementById('product-search').value.trim().toLowerCase();
+  const list = ALL_ADMIN_PRODUCTS.filter(p => matchesProductFilter(p, v) && (!q
+    || p.name.toLowerCase().includes(q)
+    || String(p.fabric || '').toLowerCase().includes(q)
+    || String(p.color || '').toLowerCase().includes(q)
+    || String(p.slug || '').toLowerCase().includes(q)));
+  const filtered = v !== 'all' || q;
+  document.getElementById('product-filter-count').textContent = filtered
+    ? `Showing ${list.length} of ${ALL_ADMIN_PRODUCTS.length}`
+    : `${ALL_ADMIN_PRODUCTS.length} products`;
+  document.getElementById('select-all-label').textContent = filtered ? `Select all ${list.length} shown` : 'Select all products';
+  renderProductsTable(list);
+}
+
+document.getElementById('product-search').addEventListener('input', applyProductFilters);
+document.getElementById('product-filter').addEventListener('change', applyProductFilters);
+document.getElementById('product-filter-clear').addEventListener('click', () => {
+  document.getElementById('product-filter').value = 'all';
+  document.getElementById('product-search').value = '';
+  applyProductFilters();
 });
 
 async function loadProducts() {
   const root = document.getElementById('products-root');
   try {
-    const products = await api('/api/admin/products');
+    const [products] = await Promise.all([
+      api('/api/admin/products'),
+      loadProductFilterOptions()
+    ]);
     ALL_ADMIN_PRODUCTS = products;
-    renderProductsTable(products);
+    applyProductFilters();
   } catch (e) {
     root.innerHTML = `<p style="color:var(--gold);">Could not load products: ${e.message}</p>`;
   }
