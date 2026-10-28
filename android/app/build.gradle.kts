@@ -12,13 +12,18 @@ android {
         applicationId = "pk.calista.merchant"
         minSdk = 24
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.5.1"
+        versionCode = 9
+        versionName = "1.6.0"
     }
 
     buildTypes {
+        // The release build is what makes the app fast: debug builds run Compose without
+        // ahead-of-time optimisation and are 2-3x slower to scroll. Signed with the
+        // debug key so it installs straight from GitHub Actions.
         release {
             isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -32,6 +37,10 @@ android {
     buildFeatures {
         compose = true
     }
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 dependencies {
@@ -44,6 +53,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    // Installs the startup profiles Compose ships with, so first launch is not cold.
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
