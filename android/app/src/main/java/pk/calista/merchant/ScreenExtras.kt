@@ -453,9 +453,9 @@ fun SecurityScreen(s: AppState) {
             Field("4-digit PIN", newPin, "••••", number = true) { newPin = it.filter { c -> c.isDigit() }.take(4) }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (s.pin.isNotBlank()) LineButton("Turn off", Modifier.weight(1f)) { s.setPin(""); newPin = "" }
+                if (s.pin.isNotBlank()) LineButton("Turn off", Modifier.weight(1f)) { s.changePin(""); newPin = "" }
                 GoldButton(if (s.pin.isBlank()) "Turn on" else "Change PIN", Modifier.weight(1f), enabled = newPin.length == 4) {
-                    s.setPin(newPin); newPin = ""
+                    s.changePin(newPin); newPin = ""
                 }
             }
         }

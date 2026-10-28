@@ -547,7 +547,7 @@ class AppState(private val ctx: Context) {
         screen = Screen.Connect
     }
 
-    fun setPin(p: String) {
+    fun changePin(p: String) {
         val clean = p.filter { it.isDigit() }
         if (clean.isNotEmpty() && clean.length != 4) { flash("PIN must be 4 digits"); return }
         pin = clean
