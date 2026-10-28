@@ -188,7 +188,8 @@ fun WideThumb(url: String) {
                 model = url,
                 contentDescription = null,
                 modifier = Modifier.fillMaxWidth().height(150.dp),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                alignment = Alignment.Center,
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
             Box(Modifier.fillMaxWidth().height(150.dp).background(T.bg.copy(alpha = 0.45f)))
         }

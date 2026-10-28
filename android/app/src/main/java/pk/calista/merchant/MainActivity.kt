@@ -149,6 +149,25 @@ fun App(s: AppState) {
                 Screen.CodLedger -> CodLedgerScreen(s)
                 else -> Unit
             }
+            val pc = s.pendingCard
+            if (pc != null) {
+                Column(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(T.surface).border(1.dp, T.gold).padding(14.dp),
+                ) {
+                    Kicker("Step 2 of 2", T.gold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Message sent to " + pc.first.firstName + "? Now send the photo card into the same chat.",
+                        color = T.text, style = body(13),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LineButton("Skip", Modifier.weight(1f)) { s.dismissPendingCard() }
+                        GoldButton("Send photos", Modifier.weight(2f)) { s.sendPendingCard() }
+                    }
+                }
+            }
             if (s.toast.isNotBlank()) {
                 Box(
                     Modifier.align(Alignment.BottomCenter).padding(14.dp).fillMaxWidth()

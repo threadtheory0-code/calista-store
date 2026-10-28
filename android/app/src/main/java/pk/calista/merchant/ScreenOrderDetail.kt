@@ -204,7 +204,17 @@ fun OrderDetailScreen(s: AppState) {
                 }
                 KeyValue("Total (" + o.payment + ")", rs(o.total), T.goldSoft)
                 Spacer(Modifier.height(12.dp))
-                GoldButton("Send items + photos on WhatsApp", Modifier.fillMaxWidth()) { s.whatsAppWithPhotos(o, "confirm") }
+                GoldButton(
+                    if (s.cardBusy) "Preparing photos…" else "Send items + photos on WhatsApp",
+                    Modifier.fillMaxWidth(),
+                    enabled = !s.cardBusy,
+                ) { s.whatsAppWithPhotos(o, "confirm") }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Opens " + o.firstName + "'s chat with the order typed in. Send it, come back, " +
+                        "and tap Send photos to add the picture of every item.",
+                    color = T.ghost, style = body(11),
+                )
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     LineButton("Invoice PDF", Modifier.weight(1f)) { s.shareInvoice(o) }

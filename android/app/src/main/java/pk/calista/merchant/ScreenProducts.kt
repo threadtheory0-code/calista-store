@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -154,11 +155,13 @@ fun Thumb(url: String, w: Int, h: Int) {
         if (url.isBlank()) {
             Text("—", color = T.ghost, style = mono(12))
         } else {
+            // Fit + centre: the whole article is visible, never cropped or stretched.
             AsyncImage(
                 model = url,
                 contentDescription = null,
-                modifier = Modifier.fillMaxWidth().height(h.dp),
-                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().padding(2.dp),
+                alignment = Alignment.Center,
+                contentScale = ContentScale.Fit,
             )
         }
     }

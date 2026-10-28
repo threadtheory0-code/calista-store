@@ -44,6 +44,9 @@ fun SettingsScreen(s: AppState) {
             s.backTo = Screen.Settings
             s.go(Screen.ConfirmQueue)
         }
+        SettingRow("Send WhatsApp from", "Tap to switch: auto · Business · personal", s.waAppLabel()) {
+            s.cycleWaApp()
+        }
         SettingRow("Courier accounts", "PostEx live · Leopards, TCS manual", "1 live") {
             s.go(Screen.Connections)
         }
@@ -52,7 +55,7 @@ fun SettingsScreen(s: AppState) {
 
         Spacer(Modifier.height(18.dp))
         Text(
-            "calista-merchant 1.6.0 · d1 kapra_store_db · r2 calista-images",
+            "calista-merchant 1.6.1 · d1 kapra_store_db · r2 calista-images",
             color = T.ghost, style = mono(10), modifier = Modifier.padding(horizontal = 16.dp),
         )
         Spacer(Modifier.height(30.dp))

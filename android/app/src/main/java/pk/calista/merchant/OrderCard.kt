@@ -7,7 +7,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color as AColor
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.RectF
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
@@ -83,10 +82,9 @@ object OrderCard {
                         PAD.toFloat(), top,
                         (PAD + THUMB_W).toFloat(), (top + THUMB_H),
                     )
+                    c.drawRect(box, Paint().apply { color = AColor.parseColor("#1A1A1A") })
                     if (shot != null) {
-                        c.drawBitmap(shot, srcCrop(shot), box, null)
-                    } else {
-                        c.drawRect(box, Paint().apply { color = AColor.parseColor("#1A1A1A") })
+                        c.drawBitmap(shot, null, fitCentre(shot, box), Paint(Paint.FILTER_BITMAP_FLAG))
                     }
                     c.drawRect(box, frame)
 
@@ -147,7 +145,7 @@ object OrderCard {
      *
      * Order of attempts: WhatsApp → WhatsApp Business → the general share sheet.
      */
-    fun share(ctx: Context, file: File, text: String, waDigits: String) {
+    fun share(ctx: Context, file: File, text: String, waDigits: String, preferred: String? = null) {
         val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
         val jid = if (waDigits.isBlank()) null else waDigits + "@s.whatsapp.net"
 
@@ -165,10 +163,9 @@ object OrderCard {
             true
         }.getOrDefault(false)
 
-        if (attempt("com.whatsapp", true)) return
-        if (attempt("com.whatsapp.w4b", true)) return
-        if (attempt("com.whatsapp", false)) return
-        if (attempt("com.whatsapp.w4b", false)) return
+        val order = listOfNotNull(preferred) + listOf("com.whatsapp.w4b", "com.whatsapp").filter { it != preferred }
+        for (pkg in order) if (attempt(pkg, true)) return
+        for (pkg in order) if (attempt(pkg, false)) return
 
         run {
             val any = Intent(Intent.ACTION_SEND).apply {
@@ -188,22 +185,28 @@ object OrderCard {
         if (url.isBlank()) return null
         return runCatching {
             http.newCall(Request.Builder().url(url).build()).execute().use { r ->
-                if (!r.isSuccessful) null else BitmapFactory.decodeStream(r.body?.byteStream())
+                if (!r.isSuccessful) return@use null
+                val bytes = r.body?.bytes() ?: return@use null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= THUMB_W * 2 && bounds.outHeight / (sample * 2) >= THUMB_H * 2) sample *= 2
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
             }
         }.getOrNull()
     }
 
-    /** Centre-crop source rect so the photo fills the frame without stretching. */
-    private fun srcCrop(b: Bitmap): Rect {
-        val target = THUMB_W.toFloat() / THUMB_H
-        val ratio = b.width.toFloat() / b.height
-        return if (ratio > target) {
-            val w = (b.height * target).toInt()
-            Rect((b.width - w) / 2, 0, (b.width + w) / 2, b.height)
-        } else {
-            val h = (b.width / target).toInt()
-            Rect(0, (b.height - h) / 2, b.width, (b.height + h) / 2)
-        }
+    /** The whole photo, scaled to fit inside the frame and centred — nothing cut off. */
+    private fun fitCentre(b: Bitmap, box: RectF): RectF {
+        val inset = 4f
+        val bw = box.width() - inset * 2
+        val bh = box.height() - inset * 2
+        val scale = minOf(bw / b.width, bh / b.height)
+        val w = b.width * scale
+        val h = b.height * scale
+        val left = box.left + inset + (bw - w) / 2
+        val top = box.top + inset + (bh - h) / 2
+        return RectF(left, top, left + w, top + h)
     }
 
     private fun wrap(text: String, paint: Paint, max: Float): List<String> {

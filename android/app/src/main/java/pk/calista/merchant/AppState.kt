@@ -1111,27 +1111,70 @@ class AppState(private val ctx: Context) {
 
     fun shareInvoice(o: Order) = Invoice.share(ctx, o)
 
+    // ---- WhatsApp ------------------------------------------------------------
+
+    /** "auto" picks WhatsApp Business when it is installed — that is the store's number. */
+    var waApp by mutableStateOf(prefs.getString("waApp", "auto") ?: "auto")
+    var cardBusy by mutableStateOf(false)
+    /** Photo card waiting for step 2, after the text has opened the right chat. */
+    var pendingCard by mutableStateOf<Pair<Order, File>?>(null)
+
+    private fun installed(pkg: String): Boolean =
+        runCatching { ctx.packageManager.getPackageInfo(pkg, 0); true }.getOrDefault(false)
+
+    fun waPackage(): String? = when (waApp) {
+        "business" -> if (installed("com.whatsapp.w4b")) "com.whatsapp.w4b" else null
+        "personal" -> if (installed("com.whatsapp")) "com.whatsapp" else null
+        else -> when {
+            installed("com.whatsapp.w4b") -> "com.whatsapp.w4b"
+            installed("com.whatsapp") -> "com.whatsapp"
+            else -> null
+        }
+    }
+
+    fun cycleWaApp() {
+        waApp = when (waApp) { "auto" -> "business"; "business" -> "personal"; else -> "auto" }
+        prefs.edit().putString("waApp", waApp).apply()
+        flash("WhatsApp: " + waAppLabel())
+    }
+
+    fun waAppLabel(): String = when (waApp) {
+        "business" -> "WhatsApp Business"
+        "personal" -> "WhatsApp"
+        else -> if (waPackage() == "com.whatsapp.w4b") "auto · Business" else "auto · WhatsApp"
+    }
+
+    /**
+     * Two steps, because WhatsApp only attaches a picture straight into a chat that already
+     * exists. Step 1 opens the customer's chat with the message typed in (works for any
+     * number). Step 2 — the bar shown when you come back — drops the photo card into that
+     * same chat.
+     */
     fun whatsAppWithPhotos(o: Order, template: String) {
+        if (cardBusy) return
         scope.launch {
-            loading = true
+            cardBusy = true
             try {
                 val file = OrderCard.build(ctx, o) { imageFor(it) }
-                if (file == null) {
-                    flash("Could not build the card — sending text only")
-                    whatsApp(o, template)
-                    return@launch
-                }
-                OrderCard.share(ctx, file, WaTemplates.fill(template, o), o.waDigits)
-                runCatching { Api.logWhatsApp(o.id, template) }
-                orders = orders.map { if (it.id == o.id && it.waStatus == "none") it.copy(waStatus = "sent") else it }
-                flash("Opening " + o.firstName + "'s chat · " + o.localPhone)
+                whatsApp(o, template)
+                if (file != null) pendingCard = Pair(o, file)
+                else flash("Photos could not be prepared — message opened without them")
             } catch (e: Exception) {
                 flash(e.message ?: "Could not open WhatsApp")
             } finally {
-                loading = false
+                cardBusy = false
             }
         }
     }
+
+    fun sendPendingCard() {
+        val p = pendingCard ?: return
+        pendingCard = null
+        val o = p.first
+        OrderCard.share(ctx, p.second, "Your order " + o.ref + " · " + rs(o.total), o.waDigits, waPackage())
+    }
+
+    fun dismissPendingCard() { pendingCard = null }
 
     // ---- phone intents -----------------------------------------------------
 
@@ -1156,10 +1199,20 @@ class AppState(private val ctx: Context) {
 
     fun whatsApp(o: Order, template: String) {
         val text = WaTemplates.fill(template, o)
-        val uri = Uri.parse("https://wa.me/" + o.waDigits + "?text=" + Uri.encode(text))
-        val i = Intent(Intent.ACTION_VIEW, uri)
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching { ctx.startActivity(i) }.onFailure { flash("WhatsApp is not installed") }
+        val uri = Uri.parse("https://api.whatsapp.com/send?phone=" + o.waDigits + "&text=" + Uri.encode(text))
+        val pkg = waPackage()
+        val opened = runCatching {
+            val i = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (pkg != null) i.setPackage(pkg)
+            ctx.startActivity(i)
+            true
+        }.getOrElse {
+            runCatching {
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                true
+            }.getOrDefault(false)
+        }
+        if (!opened) { flash("WhatsApp is not installed"); return }
         scope.launch { runCatching { Api.logWhatsApp(o.id, template) } }
         orders = orders.map { if (it.id == o.id && it.waStatus == "none") it.copy(waStatus = "sent") else it }
     }
