@@ -1,3 +1,5 @@
+import { handleAdmin } from './api-admin.js';
+
 function calculateDiscount(discount, cart) {
   if (!Array.isArray(cart) || cart.length === 0) return { error: 'Cart is empty' };
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
@@ -727,6 +729,11 @@ export default {
     const path = url.pathname;
     const method = request.method;
 
+    // Android merchant app (Bearer token). handleAdmin returns null for anything
+    // that is not its own, so the website's Basic-auth admin below is untouched.
+    const app_response = await handleAdmin(request, env);
+    if (app_response) return app_response;
+
     const isAdminRoute = path === '/admin.html' || path.startsWith('/api/admin/');
     if (isAdminRoute && !checkAdminAuth(request, env)) {
       return unauthorized();
@@ -972,7 +979,7 @@ export default {
         if (!id || !allowed.includes(status)) {
           return json({ error: 'Invalid id or status' }, 400);
         }
-        await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, id).run();
+        await env.DB.prepare("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?").bind(status, id).run();
         if (status === 'confirmed') {
           try {
             await env.DB.prepare("UPDATE orders SET verified_at = datetime('now') WHERE id = ? AND verified_at IS NULL").bind(id).run();
@@ -1705,7 +1712,7 @@ export default {
           }
 
           await env.DB.prepare(
-            `UPDATE orders SET postex_tracking = ?, postex_status = ?, postex_booked_at = datetime('now'),
+            `UPDATE orders SET postex_tracking = ?, postex_status = ?, postex_booked_at = datetime('now'), updated_at = datetime('now'),
                                 status = CASE WHEN status = 'pending' THEN 'confirmed' ELSE status END
              WHERE id = ?`
           ).bind(tracking, 'Booked', order.id).run();
@@ -1725,7 +1732,7 @@ export default {
         const d = (r.data && r.data.dist) || {};
         const status = d.transactionStatus || d.orderStatus || d.status || null;
         if (status) {
-          await env.DB.prepare('UPDATE orders SET postex_status = ? WHERE postex_tracking = ?')
+          await env.DB.prepare("UPDATE orders SET postex_status = ?, updated_at = datetime('now') WHERE postex_tracking = ?")
             .bind(status, tracking).run();
         }
         return json({ success: true, status, history: d.transactionStatusHistory || d.statusHistory || [] });
@@ -1740,7 +1747,7 @@ export default {
           });
           if (!r.ok) return json({ error: r.error }, 400);
           await env.DB.prepare(
-            "UPDATE orders SET postex_status = 'Cancelled', postex_tracking = NULL WHERE postex_tracking = ?"
+            "UPDATE orders SET postex_status = 'Cancelled', postex_tracking = NULL, updated_at = datetime('now') WHERE postex_tracking = ?"
           ).bind(tracking).run();
           return json({ success: true });
         } catch (err) {
@@ -2128,8 +2135,8 @@ export default {
         } catch (e) { /* non-fatal */ }
 
         await env.DB.prepare(
-          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status, risk_note)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+          `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_code, discount_amount, status, risk_note, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, datetime('now'))`
         ).bind(customer_name, cleanPhone, address, city, JSON.stringify(priced), total, appliedCode, discountAmount, riskNote).run();
 
         // Stock comes down as orders come in, so "only N left" stays true and
