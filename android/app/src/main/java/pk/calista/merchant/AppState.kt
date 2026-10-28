@@ -87,6 +87,8 @@ class AppState(private val ctx: Context) {
     var query by mutableStateOf("")
     var productQuery by mutableStateOf("")
     var productFilter by mutableStateOf("all")
+    /** "" = every fabric; otherwise the fabric name, matched case-insensitively. */
+    var productFabric by mutableStateOf("")
     var range by mutableStateOf("7d")
     var openOrderId by mutableStateOf(0L)
 
@@ -825,7 +827,30 @@ class AppState(private val ctx: Context) {
                 (productFilter == "out" && it.stock <= 0) ||
                 (productFilter == "hidden" && !it.active) ||
                 (productFilter == "sale" && it.sale != null && it.sale > 0)) &&
+                (productFabric.isBlank() || it.fabric.trim().equals(productFabric, true)) &&
                 (productQuery.isBlank() || it.name.contains(productQuery, true) || it.fabric.contains(productQuery, true))
+        }
+
+    /** Fabric chips: the store's category order first, then any other fabric in use, with counts. */
+    val fabricCounts: List<Pair<String, Int>>
+        get() {
+            val counts = LinkedHashMap<String, Int>()
+            val names = HashMap<String, String>()
+            for (p in products) {
+                val f = p.fabric.trim()
+                if (f.isBlank()) continue
+                val k = f.lowercase()
+                counts[k] = (counts[k] ?: 0) + 1
+                if (k !in names) names[k] = f
+            }
+            val ordered = ArrayList<Pair<String, Int>>()
+            for (f in fabrics) {
+                val k = f.trim().lowercase()
+                val n = counts.remove(k) ?: continue
+                ordered.add(f.trim() to n)
+            }
+            for ((k, n) in counts.entries.sortedByDescending { it.value }) ordered.add((names[k] ?: k) to n)
+            return ordered
         }
 
     /** Units sold per product name, from the loaded orders. */

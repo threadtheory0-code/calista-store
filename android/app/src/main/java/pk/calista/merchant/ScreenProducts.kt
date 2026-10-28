@@ -49,6 +49,16 @@ fun ProductsScreen(s: AppState) {
             s.productFilter,
             Modifier.padding(horizontal = 14.dp),
         ) { s.productFilter = it }
+        val fabricChips = s.fabricCounts
+        if (fabricChips.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            ChoiceChips(
+                listOf("" to "every fabric") + fabricChips.map { it.first to (it.first + "  " + it.second) },
+                fabricChips.firstOrNull { it.first.equals(s.productFabric, true) }?.first ?: "",
+                Modifier.padding(horizontal = 14.dp),
+            ) { s.productFabric = it }
+        }
+        val shown = s.visibleProducts
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -56,11 +66,12 @@ fun ProductsScreen(s: AppState) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                s.products.sumOf { it.stock.coerceAtLeast(0) }.toString() + " pieces · " +
-                    rs(s.products.sumOf { it.stock.coerceAtLeast(0) * it.unitPrice }) + " at retail",
+                shown.size.toString() + " products · " + shown.sumOf { it.stock.coerceAtLeast(0) } + " pieces · " +
+                    rs(shown.sumOf { it.stock.coerceAtLeast(0) * it.unitPrice }),
                 color = T.faint, style = mono(11),
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
             )
-            Spacer(Modifier.weight(1f))
             Box(
                 Modifier.background(T.gold).clickable { s.newProduct() }
                     .padding(horizontal = 12.dp, vertical = 9.dp),
@@ -69,7 +80,7 @@ fun ProductsScreen(s: AppState) {
 
         Refreshable(s) {
         LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
-            items(s.visibleProducts, key = { it.id }) { p ->
+            items(shown, key = { it.id }) { p ->
                 Column(
                     Modifier.fillMaxWidth().padding(bottom = 12.dp)
                         .background(T.surface).border(1.dp, T.line)
@@ -135,7 +146,7 @@ fun ProductsScreen(s: AppState) {
                 }
             }
             item {
-                if (s.visibleProducts.isEmpty()) {
+                if (shown.isEmpty()) {
                     Spacer(Modifier.height(24.dp))
                     Text(if (s.products.isEmpty()) "No products loaded yet." else "Nothing matches.", color = T.faint, style = body(13))
                 }
