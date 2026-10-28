@@ -3,18 +3,28 @@ package pk.calista.merchant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 class ApiError(message: String) : Exception(message)
 
-data class LineItem(val name: String, val size: String, val qty: Int, val price: Int)
+data class LineItem(
+    val name: String,
+    val size: String,
+    val qty: Int,
+    val price: Int,
+    val productId: Long = 0,
+)
 
 data class Order(
     val id: Long,
@@ -30,9 +40,24 @@ data class Order(
     val tracking: String,
     val waStatus: String,
     val items: List<LineItem>,
+    val discountCode: String = "",
+    val discountAmount: Int = 0,
+    val riskNote: String = "",
+    val note: String = "",
+    val codPaidAt: String = "",
+    val source: String = "",
+    val postexStatus: String = "",
 ) {
     val firstName: String get() = name.trim().split(" ").firstOrNull() ?: name
     val ref: String get() = "#" + id
+    val st: String get() = status.lowercase()
+    val codPaid: Boolean get() = codPaidAt.isNotBlank()
+    val units: Int get() = items.sumOf { it.qty }
+
+    /** Parsed once per instance — list rows read it on every frame. */
+    val placedAt: Long by lazy { Dates.parse(placed) }
+    val ageHours: Long get() = if (placedAt == 0L) 0L else (System.currentTimeMillis() - placedAt) / 3_600_000L
+
     /** Local format PostEx and the dialler both accept: 03XXXXXXXXX. */
     val localPhone: String
         get() {
@@ -57,7 +82,10 @@ data class Product(
     val stock: Int,
     val active: Boolean,
     val image: String = "",
-)
+    val slug: String = "",
+) {
+    val unitPrice: Int get() = if (sale != null && sale > 0) sale else price
+}
 
 data class Discount(
     val id: Long,
@@ -75,7 +103,6 @@ data class Discount(
     val getPercent: Int,
     val active: Boolean,
 ) {
-    /** Human sentence for the list row — the type codes mean nothing on their own. */
     val summary: String
         get() = when (type) {
             "percentage_off_order" -> (value ?: 0).toString() + "% off the order"
@@ -108,14 +135,87 @@ data class Stats(
     val series: List<Int>,
 )
 
+data class Review(
+    val id: Long,
+    val product: String,
+    val name: String,
+    val city: String,
+    val rating: Int,
+    val body: String,
+    val approved: Boolean,
+    val created: String,
+)
+
+data class Blocked(val phone: String, val reason: String, val created: String)
+
+/** Everything the app shows, from one request. */
+data class Boot(
+    val serverTime: String,
+    val orders: List<Order>,
+    val products: List<Product>,
+    val stats: Stats?,
+    val discounts: List<Discount>,
+    val banners: List<Banner>,
+    val fabrics: List<String>,
+    val blocked: List<Blocked>,
+)
+
+/** The store writes UTC ("2026-10-28 14:05:00"); the phone shows local time. */
+object Dates {
+    private val utc = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+    private val dayFmt = SimpleDateFormat("d MMM", Locale.US)
+    private val timeFmt = SimpleDateFormat("d MMM, h:mm a", Locale.US)
+
+    fun parse(s: String): Long {
+        if (s.length < 10) return 0L
+        var t = s.replace('T', ' ').take(19)
+        if (t.length == 10) t += " 00:00:00"
+        return runCatching { synchronized(utc) { utc.parse(t)?.time ?: 0L } }.getOrDefault(0L)
+    }
+
+    fun startOfToday(): Long {
+        val c = Calendar.getInstance()
+        c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0)
+        c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
+        return c.timeInMillis
+    }
+
+    fun hourOf(ms: Long): Int {
+        val c = Calendar.getInstance()
+        c.timeInMillis = ms
+        return c.get(Calendar.HOUR_OF_DAY)
+    }
+
+    fun ago(ms: Long): String {
+        if (ms == 0L) return ""
+        val m = (System.currentTimeMillis() - ms) / 60_000L
+        return when {
+            m < 1 -> "now"
+            m < 60 -> m.toString() + "m"
+            m < 1440 -> (m / 60).toString() + "h"
+            m < 10080 -> (m / 1440).toString() + "d"
+            else -> synchronized(dayFmt) { dayFmt.format(java.util.Date(ms)) }
+        }
+    }
+
+    fun stamp(ms: Long): String =
+        if (ms == 0L) "" else synchronized(timeFmt) { timeFmt.format(java.util.Date(ms)) }
+}
+
+private fun JSONObject.str(k: String): String = if (isNull(k)) "" else optString(k, "")
+private fun JSONObject.intOrNull(k: String): Int? = if (isNull(k)) null else optInt(k)
+
 object Api {
     var base: String = ""
     var token: String = ""
 
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     private fun builder(path: String): Request.Builder {
@@ -126,13 +226,16 @@ object Api {
             .header("Accept", "application/json")
     }
 
-    private suspend fun exec(b: Request.Builder): JSONObject = withContext(Dispatchers.IO) {
+    private suspend fun execText(b: Request.Builder): String = withContext(Dispatchers.IO) {
         try {
             client.newCall(b.build()).execute().use { r ->
                 val text = r.body?.string().orEmpty()
                 if (r.code == 401) throw ApiError("Admin token rejected (401)")
-                if (!r.isSuccessful) throw ApiError("HTTP " + r.code + " " + text.take(120))
-                if (text.isBlank()) JSONObject() else JSONObject(text)
+                if (!r.isSuccessful) {
+                    val msg = runCatching { JSONObject(text).optString("error") }.getOrNull()
+                    throw ApiError(if (!msg.isNullOrBlank()) msg else "HTTP " + r.code + " " + text.take(120))
+                }
+                text
             }
         } catch (e: ApiError) {
             throw e
@@ -141,170 +244,160 @@ object Api {
         }
     }
 
+    /** Network on IO, JSON parsing on Default — never on the UI thread. */
+    private suspend fun exec(b: Request.Builder): JSONObject {
+        val text = execText(b)
+        return withContext(Dispatchers.Default) { if (text.isBlank()) JSONObject() else JSONObject(text) }
+    }
+
     private suspend fun get(path: String) = exec(builder(path))
     private suspend fun patch(path: String, body: JSONObject) =
         exec(builder(path).patch(body.toString().toRequestBody(JSON_TYPE)))
     private suspend fun post(path: String, body: JSONObject) =
         exec(builder(path).post(body.toString().toRequestBody(JSON_TYPE)))
+    private suspend fun delete(path: String) = exec(builder(path).delete())
+
+    // ---- one-shot load -----------------------------------------------------
+
+    /** Returns the parsed store and the raw text, which is cached for instant start. */
+    suspend fun bootstrap(range: String): Pair<Boot, String> {
+        val text = execText(builder("/api/admin/app/bootstrap?range=" + range + "&limit=300"))
+        val boot = withContext(Dispatchers.Default) { parseBoot(JSONObject(text)) }
+        return Pair(boot, text)
+    }
+
+    fun parseBoot(o: JSONObject): Boot {
+        val oa = o.optJSONArray("orders") ?: JSONArray()
+        val pa = o.optJSONArray("products") ?: JSONArray()
+        val da = o.optJSONArray("discounts") ?: JSONArray()
+        val ba = o.optJSONArray("banners") ?: JSONArray()
+        val fa = o.optJSONArray("fabrics") ?: JSONArray()
+        val bl = o.optJSONArray("blocked") ?: JSONArray()
+        return Boot(
+            serverTime = o.str("server_time"),
+            orders = (0 until oa.length()).map { parseOrder(oa.getJSONObject(it)) },
+            products = (0 until pa.length()).map { parseProduct(pa.getJSONObject(it)) },
+            stats = o.optJSONObject("stats")?.let { parseStats(it) },
+            discounts = (0 until da.length()).map { parseDiscount(da.getJSONObject(it)) },
+            banners = (0 until ba.length()).map { parseBanner(ba.getJSONObject(it)) },
+            fabrics = (0 until fa.length()).map { fa.optString(it) }.filter { it.isNotBlank() },
+            blocked = (0 until bl.length()).map {
+                val b = bl.getJSONObject(it)
+                Blocked(b.str("phone"), b.str("reason"), b.str("created_at"))
+            },
+        )
+    }
 
     // ---- reads -------------------------------------------------------------
 
     suspend fun orders(since: String? = null, limit: Int = 120): Pair<List<Order>, String> {
         var path = "/api/admin/orders?limit=" + limit
-        if (!since.isNullOrBlank()) {
-            path += "&since=" + java.net.URLEncoder.encode(since, "UTF-8")
-        }
+        if (!since.isNullOrBlank()) path += "&since=" + java.net.URLEncoder.encode(since, "UTF-8")
         val o = get(path)
-        val arr = o.optJSONArray("orders") ?: JSONArray()
-        val list = ArrayList<Order>()
-        for (i in 0 until arr.length()) list.add(parseOrder(arr.getJSONObject(i)))
-        return Pair(list, o.optString("server_time"))
+        val list = withContext(Dispatchers.Default) {
+            val arr = o.optJSONArray("orders") ?: JSONArray()
+            (0 until arr.length()).map { parseOrder(arr.getJSONObject(it)) }
+        }
+        return Pair(list, o.str("server_time"))
     }
 
-    suspend fun stats(range: String): Stats {
-        val o = get("/api/admin/stats?range=" + range)
-        val s = o.optJSONArray("series") ?: JSONArray()
-        val series = ArrayList<Int>()
-        for (i in 0 until s.length()) series.add(s.optInt(i))
-        return Stats(
-            sales = o.optInt("sales"),
-            orders = o.optInt("orders"),
-            cod = o.optInt("cod"),
-            codCount = o.optInt("cod_count"),
-            returnRate = o.optString("return_rate", "-"),
-            series = series,
-        )
-    }
+    suspend fun stats(range: String): Stats = parseStats(get("/api/admin/stats?range=" + range))
 
     suspend fun products(): List<Product> {
-        val o = get("/api/admin/products?limit=200")
-        val arr = o.optJSONArray("products") ?: JSONArray()
-        val list = ArrayList<Product>()
-        for (i in 0 until arr.length()) {
-            val p = arr.getJSONObject(i)
-            list.add(
-                Product(
-                    id = p.optLong("id"),
-                    name = p.optString("name"),
-                    fabric = p.optString("fabric"),
-                    price = p.optInt("price"),
-                    sale = if (p.isNull("sale_price")) null else p.optInt("sale_price"),
-                    stock = p.optInt("stock"),
-                    active = p.optInt("active", 1) == 1,
-                    image = p.optString("image_url", ""),
-                )
+        val arr = get("/api/admin/products?limit=500").optJSONArray("products") ?: JSONArray()
+        return (0 until arr.length()).map { parseProduct(arr.getJSONObject(it)) }
+    }
+
+    suspend fun reviews(): List<Review> {
+        val arr = get("/api/admin/app/reviews").optJSONArray("reviews") ?: JSONArray()
+        return (0 until arr.length()).map {
+            val r = arr.getJSONObject(it)
+            Review(
+                id = r.optLong("id"),
+                product = r.str("product_name"),
+                name = r.str("customer_name"),
+                city = r.str("city"),
+                rating = r.optInt("rating", 5),
+                body = r.str("body"),
+                approved = r.optInt("is_approved") == 1,
+                created = r.str("created_at"),
             )
         }
-        return list
     }
 
     // ---- writes ------------------------------------------------------------
 
-    suspend fun setStatus(id: Long, status: String) =
-        patch("/api/admin/orders/" + id, JSONObject().put("status", status))
+    suspend fun setStatus(id: Long, status: String) = patchOrder(id, JSONObject().put("status", status))
 
-    suspend fun setProduct(id: Long, body: JSONObject) =
-        patch("/api/admin/products/" + id, body)
+    suspend fun patchOrder(id: Long, body: JSONObject) = patch("/api/admin/orders/" + id, body)
 
-    suspend fun createProduct(body: JSONObject): Long {
-        val o = post("/api/admin/products", body)
-        return o.optLong("id")
-    }
+    /** One request for any number of orders. */
+    suspend fun bulkOrders(ids: List<Long>, body: JSONObject) =
+        post("/api/admin/app/orders/bulk", body.put("ids", JSONArray(ids)))
 
-    suspend fun deleteProduct(id: Long) = exec(builder("/api/admin/products/" + id).delete())
+    suspend fun createOrder(body: JSONObject): Long = post("/api/admin/app/orders", body).optLong("id")
+
+    suspend fun setProduct(id: Long, body: JSONObject) = patch("/api/admin/products/" + id, body)
+
+    suspend fun createProduct(body: JSONObject): Long = post("/api/admin/products", body).optLong("id")
+
+    suspend fun deleteProduct(id: Long) = delete("/api/admin/products/" + id)
 
     suspend fun logWhatsApp(id: Long, template: String) =
         post("/api/admin/orders/" + id + "/whatsapp", JSONObject().put("template", template))
 
-    /** The Worker calls PostEx create-order and returns the CN it gave back. */
     suspend fun bookPostEx(id: Long): String {
         val o = post("/api/admin/courier/postex", JSONObject().put("orderId", id))
         if (!o.optBoolean("ok", false)) throw ApiError(o.optString("reason", "PostEx refused"))
         return o.optString("tracking")
     }
 
-    suspend fun trackPostEx(cn: String) = get("/api/admin/courier/postex/track/" + cn)
+    /** Latest courier status for a CN, e.g. "Delivered" or "Out for delivery". */
+    suspend fun trackPostEx(cn: String): String {
+        val o = get("/api/admin/courier/postex/track/" + java.net.URLEncoder.encode(cn, "UTF-8"))
+        return o.str("status")
+    }
 
-    // ---- image upload ------------------------------------------------------
+    suspend fun block(phone: String, reason: String) =
+        post("/api/admin/app/blocked", JSONObject().put("phone", phone).put("reason", reason))
 
-    /** Posts one photo into the store's R2 bucket. Returns the path, e.g. /uploads/1699…jpg */
-    suspend fun upload(file: java.io.File): String = withContext(Dispatchers.IO) {
+    suspend fun unblock(phone: String) = delete("/api/admin/app/blocked/" + phone.filter { it.isDigit() })
+
+    suspend fun setReview(id: Long, approved: Boolean) =
+        patch("/api/admin/app/reviews/" + id, JSONObject().put("is_approved", if (approved) 1 else 0))
+
+    suspend fun deleteReview(id: Long) = delete("/api/admin/app/reviews/" + id)
+
+    suspend fun upload(file: java.io.File): String {
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
-            .addFormDataPart(
-                "files", file.name,
-                file.asRequestBody("image/jpeg".toMediaType()),
-            )
+            .addFormDataPart("files", file.name, file.asRequestBody("image/jpeg".toMediaType()))
             .build()
         val o = exec(builder("/api/admin/app/upload").post(body))
         val urls = o.optJSONArray("urls") ?: JSONArray()
         if (urls.length() == 0) throw ApiError("Upload returned no link")
-        urls.optString(0)
+        return urls.optString(0)
     }
 
-    // ---- discounts ---------------------------------------------------------
+    // ---- discounts / banners ----------------------------------------------
 
     suspend fun discounts(): List<Discount> {
         val arr = get("/api/admin/app/discounts").optJSONArray("discounts") ?: JSONArray()
-        val list = ArrayList<Discount>()
-        for (i in 0 until arr.length()) {
-            val d = arr.getJSONObject(i)
-            list.add(
-                Discount(
-                    id = d.optLong("id"),
-                    code = if (d.isNull("code")) "" else d.optString("code"),
-                    title = d.optString("title"),
-                    type = d.optString("type"),
-                    value = if (d.isNull("value")) null else d.optInt("value"),
-                    minCart = if (d.isNull("min_cart_value")) null else d.optInt("min_cart_value"),
-                    usageLimit = if (d.isNull("usage_limit")) null else d.optInt("usage_limit"),
-                    usedCount = d.optInt("used_count"),
-                    startDate = if (d.isNull("start_date")) "" else d.optString("start_date"),
-                    endDate = if (d.isNull("end_date")) "" else d.optString("end_date"),
-                    buyQty = if (d.isNull("buy_quantity")) null else d.optInt("buy_quantity"),
-                    getQty = if (d.isNull("get_quantity")) null else d.optInt("get_quantity"),
-                    getPercent = d.optInt("get_discount_percent", 100),
-                    active = d.optInt("is_active", 1) == 1,
-                )
-            )
-        }
-        return list
+        return (0 until arr.length()).map { parseDiscount(arr.getJSONObject(it)) }
     }
 
     suspend fun createDiscount(body: JSONObject) = post("/api/admin/app/discounts", body)
-    suspend fun setDiscount(id: Long, body: JSONObject) =
-        patch("/api/admin/app/discounts/" + id, body)
-    suspend fun deleteDiscount(id: Long) =
-        exec(builder("/api/admin/app/discounts/" + id).delete())
-
-    // ---- banners -----------------------------------------------------------
+    suspend fun setDiscount(id: Long, body: JSONObject) = patch("/api/admin/app/discounts/" + id, body)
+    suspend fun deleteDiscount(id: Long) = delete("/api/admin/app/discounts/" + id)
 
     suspend fun banners(): List<Banner> {
         val arr = get("/api/admin/app/banners").optJSONArray("banners") ?: JSONArray()
-        val list = ArrayList<Banner>()
-        for (i in 0 until arr.length()) {
-            val b = arr.getJSONObject(i)
-            list.add(
-                Banner(
-                    id = b.optLong("id"),
-                    eyebrow = if (b.isNull("eyebrow")) "" else b.optString("eyebrow"),
-                    heading = b.optString("heading"),
-                    subheading = if (b.isNull("subheading")) "" else b.optString("subheading"),
-                    buttonText = if (b.isNull("button_text")) "" else b.optString("button_text"),
-                    buttonLink = if (b.isNull("button_link")) "" else b.optString("button_link"),
-                    image = if (b.isNull("image_url")) "" else b.optString("image_url"),
-                    sortOrder = b.optInt("sort_order"),
-                    active = b.optInt("is_active", 1) == 1,
-                )
-            )
-        }
-        return list
+        return (0 until arr.length()).map { parseBanner(arr.getJSONObject(it)) }
     }
 
     suspend fun createBanner(body: JSONObject) = post("/api/admin/app/banners", body)
-    suspend fun setBanner(id: Long, body: JSONObject) =
-        patch("/api/admin/app/banners/" + id, body)
-    suspend fun deleteBanner(id: Long) = exec(builder("/api/admin/app/banners/" + id).delete())
+    suspend fun setBanner(id: Long, body: JSONObject) = patch("/api/admin/app/banners/" + id, body)
+    suspend fun deleteBanner(id: Long) = delete("/api/admin/app/banners/" + id)
 
     suspend fun fabrics(): List<String> {
         val arr = get("/api/admin/app/fabrics").optJSONArray("fabrics") ?: JSONArray()
@@ -313,11 +406,63 @@ object Api {
 
     // ---- parsing -----------------------------------------------------------
 
+    private fun parseStats(o: JSONObject): Stats {
+        val s = o.optJSONArray("series") ?: JSONArray()
+        return Stats(
+            sales = o.optInt("sales"),
+            orders = o.optInt("orders"),
+            cod = o.optInt("cod"),
+            codCount = o.optInt("cod_count"),
+            returnRate = o.optString("return_rate", "-"),
+            series = (0 until s.length()).map { s.optInt(it) },
+        )
+    }
+
+    private fun parseProduct(p: JSONObject) = Product(
+        id = p.optLong("id"),
+        name = p.str("name"),
+        fabric = p.str("fabric"),
+        price = p.optInt("price"),
+        sale = p.intOrNull("sale_price"),
+        stock = p.optInt("stock"),
+        active = p.optInt("active", 1) == 1,
+        image = p.str("image_url"),
+        slug = p.str("slug"),
+    )
+
+    private fun parseDiscount(d: JSONObject) = Discount(
+        id = d.optLong("id"),
+        code = d.str("code"),
+        title = d.str("title"),
+        type = d.str("type"),
+        value = d.intOrNull("value"),
+        minCart = d.intOrNull("min_cart_value"),
+        usageLimit = d.intOrNull("usage_limit"),
+        usedCount = d.optInt("used_count"),
+        startDate = d.str("start_date"),
+        endDate = d.str("end_date"),
+        buyQty = d.intOrNull("buy_quantity"),
+        getQty = d.intOrNull("get_quantity"),
+        getPercent = d.optInt("get_discount_percent", 100),
+        active = d.optInt("is_active", 1) == 1,
+    )
+
+    private fun parseBanner(b: JSONObject) = Banner(
+        id = b.optLong("id"),
+        eyebrow = b.str("eyebrow"),
+        heading = b.str("heading"),
+        subheading = b.str("subheading"),
+        buttonText = b.str("button_text"),
+        buttonLink = b.str("button_link"),
+        image = b.str("image_url"),
+        sortOrder = b.optInt("sort_order"),
+        active = b.optInt("is_active", 1) == 1,
+    )
+
     private fun parseOrder(o: JSONObject): Order {
-        val itemsRaw = o.opt("items")
-        val arr = when (itemsRaw) {
-            is JSONArray -> itemsRaw
-            is String -> runCatching { JSONArray(itemsRaw) }.getOrElse { JSONArray() }
+        val arr = when (val raw = o.opt("items")) {
+            is JSONArray -> raw
+            is String -> runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
             else -> JSONArray()
         }
         val items = ArrayList<LineItem>()
@@ -325,37 +470,46 @@ object Api {
             val it = arr.optJSONObject(i) ?: continue
             items.add(
                 LineItem(
-                    name = it.optString("name"),
-                    size = it.optString("size", "-"),
+                    name = it.str("name"),
+                    size = it.str("size").ifBlank { "-" },
                     qty = it.optInt("qty", 1),
                     price = it.optInt("price"),
+                    productId = it.optLong("product_id"),
                 )
             )
         }
         return Order(
             id = o.optLong("id"),
-            name = o.optString("name"),
-            phone = o.optString("phone"),
-            city = o.optString("city"),
-            address = o.optString("address"),
-            status = o.optString("status", "pending"),
-            payment = o.optString("payment", "COD"),
+            name = o.str("name"),
+            phone = o.str("phone"),
+            city = o.str("city"),
+            address = o.str("address"),
+            status = o.str("status").ifBlank { "pending" },
+            payment = o.str("payment").ifBlank { "COD" },
             total = o.optInt("total"),
-            placed = o.optString("created_at"),
-            courier = o.optString("courier", ""),
-            tracking = o.optString("tracking", ""),
-            waStatus = o.optString("wa_status", "none"),
+            placed = o.str("created_at"),
+            courier = o.str("courier"),
+            tracking = o.str("tracking"),
+            waStatus = o.str("wa_status").ifBlank { "none" },
             items = items,
+            discountCode = o.str("discount_code"),
+            discountAmount = o.optInt("discount_amount"),
+            riskNote = o.str("risk_note"),
+            note = o.str("admin_note"),
+            codPaidAt = o.str("cod_paid_at"),
+            source = o.str("source"),
+            postexStatus = o.str("postex_status"),
         )
     }
 }
 
 fun rs(amount: Int): String {
-    val s = amount.toString()
+    val neg = amount < 0
+    val s = kotlin.math.abs(amount).toString()
     val out = StringBuilder()
     for ((i, ch) in s.reversed().withIndex()) {
         if (i > 0 && i % 3 == 0) out.append(',')
         out.append(ch)
     }
-    return "Rs " + out.reverse().toString()
+    return (if (neg) "-Rs " else "Rs ") + out.reverse().toString()
 }

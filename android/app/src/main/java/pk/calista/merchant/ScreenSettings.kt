@@ -28,6 +28,18 @@ fun SettingsScreen(s: AppState) {
         SettingRow("Store connections", "Cloudflare account, admin token, PostEx", "linked") {
             s.go(Screen.Connections)
         }
+        SettingRow("App lock & daily target", "PIN on open · sales goal on Today", if (s.pin.isBlank()) "off" else "on") {
+            s.go(Screen.Security)
+        }
+        SettingRow("Blocked numbers", "Refused at the website checkout", s.blocked.size.toString()) {
+            s.go(Screen.Blocked)
+        }
+        SettingRow("Reviews", "Approve before they show on the website", "") {
+            s.go(Screen.Reviews)
+        }
+        SettingRow("Cash to collect", "Delivered COD not yet paid out", rs(s.codOutstanding.sumOf { it.total })) {
+            s.go(Screen.CodLedger)
+        }
         SettingRow("WhatsApp confirmations", "Templates and confirmation state", "on") {
             s.backTo = Screen.Settings
             s.go(Screen.ConfirmQueue)
@@ -40,7 +52,7 @@ fun SettingsScreen(s: AppState) {
 
         Spacer(Modifier.height(18.dp))
         Text(
-            "calista-merchant 1.0.0 · d1 kapra_store_db · r2 calista-images",
+            "calista-merchant 1.6.0 · d1 kapra_store_db · r2 calista-images",
             color = T.ghost, style = mono(10), modifier = Modifier.padding(horizontal = 16.dp),
         )
         Spacer(Modifier.height(30.dp))
@@ -109,10 +121,13 @@ fun ConnectionsScreen(s: AppState) {
             Kicker("Endpoints in use")
             Spacer(Modifier.height(8.dp))
             for (e in listOf(
+                "GET  /api/admin/app/bootstrap",
                 "GET  /api/admin/orders?since=",
                 "PATCH /api/admin/orders/:id",
-                "GET  /api/admin/stats?range=",
-                "GET  /api/admin/products",
+                "POST /api/admin/app/orders",
+                "POST /api/admin/app/orders/bulk",
+                "GET/POST/DELETE /api/admin/app/blocked",
+                "GET/PATCH /api/admin/app/reviews",
                 "PATCH /api/admin/products/:id",
                 "POST /api/admin/courier/postex",
                 "GET  /api/admin/courier/postex/track/:cn",

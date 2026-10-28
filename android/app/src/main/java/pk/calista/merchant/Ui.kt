@@ -2,6 +2,17 @@ package pk.calista.merchant
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -136,3 +147,82 @@ fun KeyValue(label: String, value: String, valueColor: Color = T.text) {
 fun RowDivider() {
     Box(Modifier.fillMaxWidth().height(1.dp).background(T.line))
 }
+
+/** Pull down anywhere on a list to re-sync the whole store. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun Refreshable(s: AppState, content: @Composable BoxScope.() -> Unit) {
+    PullToRefreshBox(
+        isRefreshing = s.refreshing,
+        onRefresh = { s.pullRefresh() },
+        modifier = Modifier.fillMaxSize(),
+        content = content,
+    )
+}
+
+@Composable
+fun RiskTag(r: Risk, modifier: Modifier = Modifier) {
+    if (r.level == "low") return
+    val c = if (r.level == "high") T.warn else T.gold
+    Box(
+        modifier.background(c.copy(alpha = 0.12f)).border(1.dp, c.copy(alpha = 0.5f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) { Kicker(r.level + " risk", c) }
+}
+
+@Composable
+fun SearchBox(value: String, hint: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        modifier = modifier,
+        shape = RectangleShape,
+        singleLine = true,
+        textStyle = body(14).copy(color = T.text),
+        placeholder = { Text(hint, color = T.ghost, style = body(13)) },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = T.gold,
+            unfocusedBorderColor = T.line,
+            focusedTextColor = T.text,
+            unfocusedTextColor = T.text,
+            cursorColor = T.gold,
+            focusedContainerColor = T.surface,
+            unfocusedContainerColor = T.surface,
+        ),
+    )
+}
+
+/** A scrolling row of single-choice chips: (key, label). */
+@Composable
+fun ChoiceChips(options: List<Pair<String, String>>, selected: String, modifier: Modifier = Modifier, onPick: (String) -> Unit) {
+    Row(
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        for ((key, label) in options) {
+            val active = key == selected
+            Box(
+                Modifier
+                    .background(if (active) T.gold else Color.Transparent)
+                    .border(1.dp, if (active) T.gold else T.line)
+                    .clickable { onPick(key) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            ) { Kicker(label, if (active) T.bg else T.muted) }
+        }
+    }
+}
+
+/** Small bordered action used inside cards. */
+@Composable
+fun MiniAction(label: String, color: Color = T.muted, onClick: () -> Unit) {
+    Box(
+        Modifier.border(1.dp, color.copy(alpha = 0.5f)).clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) { Kicker(label, color) }
+}
+
+@Composable
+fun Gap(h: Int) = Spacer(Modifier.height(h.dp))
+
+@Composable
+fun HGap(w: Int) = Spacer(Modifier.width(w.dp))

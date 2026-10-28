@@ -15,14 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,40 +32,43 @@ fun ProductsScreen(s: AppState) {
     val out = s.products.count { it.stock <= 0 }
 
     Column(Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = s.productQuery,
-            onValueChange = { s.productQuery = it },
-            modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 12.dp),
-            shape = RectangleShape,
-            singleLine = true,
-            placeholder = { Text("Search products", color = T.ghost, style = body(13)) },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = T.gold,
-                unfocusedBorderColor = T.line,
-                focusedTextColor = T.text,
-                unfocusedTextColor = T.text,
-                cursorColor = T.gold,
-                focusedContainerColor = T.surface,
-                unfocusedContainerColor = T.surface,
+        SearchBox(
+            s.productQuery, "Search products or fabric",
+            Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 12.dp),
+        ) { s.productQuery = it }
+        Spacer(Modifier.height(10.dp))
+        ChoiceChips(
+            listOf(
+                "all" to ("all  " + s.products.size),
+                "low" to ("running low  " + low),
+                "out" to ("out of stock  " + out),
+                "hidden" to ("hidden  " + s.products.count { !it.active }),
+                "sale" to ("on sale  " + s.products.count { it.sale != null && it.sale > 0 }),
             ),
-        )
+            s.productFilter,
+            Modifier.padding(horizontal = 14.dp),
+        ) { s.productFilter = it }
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (out > 0) Pill(out.toString() + " out of stock", T.warn)
-            if (low > 0) Pill(low.toString() + " running low", T.gold)
+            Text(
+                s.products.sumOf { it.stock.coerceAtLeast(0) }.toString() + " pieces · " +
+                    rs(s.products.sumOf { it.stock.coerceAtLeast(0) * it.unitPrice }) + " at retail",
+                color = T.faint, style = mono(11),
+            )
             Spacer(Modifier.weight(1f))
             Box(
                 Modifier.background(T.gold).clickable { s.newProduct() }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
             ) { Kicker("+ new product", T.bg) }
         }
 
+        Refreshable(s) {
         LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
-            items(s.visibleProducts) { p ->
+            items(s.visibleProducts, key = { it.id }) { p ->
                 Column(
                     Modifier.fillMaxWidth().padding(bottom = 12.dp)
                         .background(T.surface).border(1.dp, T.line)
@@ -124,20 +124,23 @@ fun ProductsScreen(s: AppState) {
                         Stepper("+") { s.bumpStock(p, 1) }
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            if (p.stock <= 0) "out of stock" else "in stock",
+                            if (p.stock <= 0) "out of stock" else s.unitsSold(p).toString() + " sold",
                             color = if (p.stock <= 0) T.warn else T.ghost,
                             style = body(12),
+                            modifier = Modifier.weight(1f),
                         )
+                        MiniAction("share", T.goldSoft) { s.shareProduct(p) }
                     }
                 }
             }
             item {
-                if (s.products.isEmpty()) {
+                if (s.visibleProducts.isEmpty()) {
                     Spacer(Modifier.height(24.dp))
-                    Text("No products loaded yet.", color = T.faint, style = body(13))
+                    Text(if (s.products.isEmpty()) "No products loaded yet." else "Nothing matches.", color = T.faint, style = body(13))
                 }
                 Spacer(Modifier.height(26.dp))
             }
+        }
         }
     }
 }

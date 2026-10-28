@@ -80,6 +80,15 @@ fun ProductEditScreen(s: AppState) {
         ) { s.saveDraft() }
 
         Spacer(Modifier.height(10.dp))
+        if (!isNew) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LineButton("Duplicate", Modifier.weight(1f)) { s.duplicateDraft() }
+                LineButton("Share link", Modifier.weight(1f)) {
+                    s.products.firstOrNull { it.id == s.draftId }?.let { s.shareProduct(it) }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             LineButton("Cancel", Modifier.weight(1f)) { s.go(Screen.Products) }
             if (!isNew) {

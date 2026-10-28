@@ -1,5 +1,6 @@
 package pk.calista.merchant
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,10 +36,11 @@ fun ConfirmQueueScreen(s: AppState) {
             Spacer(Modifier.height(6.dp))
         }
 
-        items(pending) { o ->
+        items(pending, key = { it.id }) { o ->
+            val r = s.risk(o)
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f).clickable { s.openOrder(o.id, Screen.ConfirmQueue) }) {
                         Text(o.name + "  " + o.ref, color = T.text, style = head(15))
                         Text(
                             when (o.waStatus) {
@@ -47,10 +49,14 @@ fun ConfirmQueueScreen(s: AppState) {
                                 "declined" -> "said NO"
                                 "replied" -> "replied — read it"
                                 else -> "not contacted"
-                            },
+                            } + " · " + Dates.ago(o.placedAt),
                             color = if (o.waStatus == "none") T.warn else T.faint,
                             style = body(12),
                         )
+                        if (r.level != "low") {
+                            Spacer(Modifier.height(4.dp))
+                            RiskTag(r)
+                        }
                     }
                     LineButton(if (o.waStatus == "none") "Send" else "Follow up") {
                         s.whatsApp(o, "confirm")

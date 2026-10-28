@@ -7,20 +7,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 enum class Screen {
     Connect, Today, Orders, OrderDetail, ConfirmQueue, Products, ProductEdit,
     Customers, CustomerDetail, Reports, Settings, Connections,
-    Discounts, DiscountEdit, Banners, BannerEdit
+    Discounts, DiscountEdit, Banners, BannerEdit,
+    NewOrder, PickList, Reviews, Blocked, Security, CodLedger,
 }
 
-/** Built from the order list - the website has no customers table. */
+/** Built from the order list — the website has no customers table. */
 data class Customer(
     val name: String,
     val phone: String,
@@ -28,16 +32,40 @@ data class Customer(
     val orders: List<Order>,
 ) {
     val count: Int get() = orders.size
-    val spent: Int get() = orders.filter { !it.status.equals("cancelled", true) }.sumOf { it.total }
-    val last: String get() = orders.maxByOrNull { it.id }?.placed?.take(10) ?: ""
-    val returns: Int get() = orders.count { it.status.equals("returned", true) }
+    val spent: Int get() = orders.filter { it.st !in DEAD }.sumOf { it.total }
+    val last: String get() = Dates.ago(orders.maxByOrNull { it.id }?.placedAt ?: 0L)
+    val returns: Int get() = orders.count { it.st == "returned" }
+    val bad: Int get() = orders.count { it.st in BAD }
+    val delivered: Int get() = orders.count { it.st == "delivered" }
+    val vip: Boolean get() = delivered >= 3 || spent >= 25_000
 }
+
+val DEAD = setOf("cancelled", "fake", "returned")
+val BAD = setOf("cancelled", "fake", "returned")
+val OPEN = setOf("pending", "confirmed", "packed", "shipped")
+
+/** How likely a COD order is to come back. Reasons are shown to the merchant word for word. */
+data class Risk(val score: Int, val reasons: List<String>) {
+    val level: String get() = when { score >= 50 -> "high"; score >= 25 -> "medium"; else -> "low" }
+}
+
+data class DraftLine(
+    val productId: Long,
+    val name: String,
+    val size: String,
+    val qty: Int,
+    val price: Int,
+    val image: String,
+)
+
+data class PickLine(val name: String, val size: String, val qty: Int, val orderIds: List<Long>)
 
 /** One store of truth for the UI. The server is the store of truth for the data. */
 class AppState(private val ctx: Context) {
 
     private val prefs = ctx.getSharedPreferences("calista", Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val cacheFile = File(ctx.filesDir, "store-cache.json")
 
     var screen by mutableStateOf(Screen.Connect)
     var backTo by mutableStateOf(Screen.Orders)
@@ -50,28 +78,39 @@ class AppState(private val ctx: Context) {
     var stats by mutableStateOf<Stats?>(null)
 
     var loading by mutableStateOf(false)
+    var refreshing by mutableStateOf(false)
     var toast by mutableStateOf("")
     var lastSync by mutableStateOf("never")
 
     var filter by mutableStateOf("all")
+    var dateFilter by mutableStateOf("any")
     var query by mutableStateOf("")
     var productQuery by mutableStateOf("")
+    var productFilter by mutableStateOf("all")
     var range by mutableStateOf("7d")
     var openOrderId by mutableStateOf(0L)
 
-    /** Live sync */
+    /** Live sync: 5 s while on screen, 30 s in the background. */
     var live by mutableStateOf(prefs.getBoolean("live", true))
     var syncing by mutableStateOf(false)
     var newBadge by mutableStateOf(0)
+    var foreground by mutableStateOf(true)
     private var cursor = ""
     private var pollJob: Job? = null
     private var tick = 0
 
-    /** Bulk selection on the Orders screen */
+    /** App lock */
+    var pin by mutableStateOf(prefs.getString("pin", "") ?: "")
+    var locked by mutableStateOf((prefs.getString("pin", "") ?: "").isNotBlank())
+    private var stoppedAt = 0L
+
+    /** Daily sales target shown on Today. 0 = off. */
+    var goal by mutableStateOf(prefs.getInt("goal", 0))
+
     var selected by mutableStateOf<Set<Long>>(emptySet())
 
-    /** Customers */
     var customerQuery by mutableStateOf("")
+    var customerFilter by mutableStateOf("all")
     var openPhone by mutableStateOf("")
 
     /** Product editor draft */
@@ -88,11 +127,15 @@ class AppState(private val ctx: Context) {
     private var lowStockWarned = mutableSetOf<Long>()
     private var summaryDay = ""
 
-    /** Store-front editing */
     var discounts by mutableStateOf<List<Discount>>(emptyList())
     var banners by mutableStateOf<List<Banner>>(emptyList())
     var fabrics by mutableStateOf<List<String>>(emptyList())
+    var blocked by mutableStateOf<List<Blocked>>(emptyList())
+    var reviews by mutableStateOf<List<Review>>(emptyList())
     var uploading by mutableStateOf(false)
+
+    /** Latest PostEx status per order id, fetched on demand. */
+    var courierStatus by mutableStateOf<Map<Long, String>>(emptyMap())
 
     /** Discount draft */
     var xId by mutableStateOf(0L)
@@ -119,25 +162,67 @@ class AppState(private val ctx: Context) {
     var bImage by mutableStateOf("")
     var bActive by mutableStateOf(true)
 
+    /** Manual order draft */
+    var nName by mutableStateOf("")
+    var nPhone by mutableStateOf("")
+    var nAddress by mutableStateOf("")
+    var nCity by mutableStateOf("")
+    var nLines by mutableStateOf<List<DraftLine>>(emptyList())
+    var nDiscount by mutableStateOf("")
+    var nNote by mutableStateOf("")
+    var nSource by mutableStateOf("whatsapp")
+    var nStatus by mutableStateOf("confirmed")
+
     init {
         Api.base = storeUrl
         Api.token = adminToken
+        Notify.ensure(ctx)
         if (storeUrl.isNotBlank() && adminToken.isNotBlank()) {
             screen = Screen.Today
-            refresh()
+            scope.launch {
+                loadCache()
+                refresh()
+            }
         }
-        Notify.ensure(ctx)
         startPolling()
     }
 
-    /** Turns a relative image path from the website into something Coil can load. */
+    // ---- cache: the last store snapshot, shown instantly on launch ---------
+
+    private suspend fun loadCache() {
+        val boot = withContext(Dispatchers.IO) {
+            runCatching {
+                if (cacheFile.exists()) Api.parseBoot(JSONObject(cacheFile.readText())) else null
+            }.getOrNull()
+        } ?: return
+        applyBoot(boot)
+        lastSync = "cached"
+    }
+
+    private fun saveCache(text: String) {
+        scope.launch(Dispatchers.IO) { runCatching { cacheFile.writeText(text) } }
+    }
+
+    private fun applyBoot(b: Boot) {
+        orders = b.orders
+        products = b.products
+        if (b.stats != null) stats = b.stats
+        discounts = b.discounts
+        banners = b.banners
+        if (b.fabrics.isNotEmpty()) fabrics = b.fabrics
+        blocked = b.blocked
+        if (b.serverTime.isNotBlank()) {
+            cursor = b.serverTime
+            lastSync = b.serverTime.take(19)
+        }
+    }
+
     fun abs(url: String): String = when {
         url.isBlank() -> ""
         url.startsWith("http") -> url
         else -> storeUrl.trimEnd('/') + "/" + url.trimStart('/')
     }
 
-    /** Best-effort photo for an order line item, matched against the product list. */
     fun imageFor(itemName: String): String {
         val n = itemName.trim().lowercase()
         if (n.isBlank()) return ""
@@ -147,6 +232,21 @@ class AppState(private val ctx: Context) {
                 pn.isNotBlank() && (n.contains(pn) || pn.contains(n))
             }
         return abs(hit?.image ?: "")
+    }
+
+    // ---- lifecycle + polling ----------------------------------------------
+
+    fun onForeground() {
+        foreground = true
+        if (pin.isNotBlank() && stoppedAt > 0 && System.currentTimeMillis() - stoppedAt > 120_000L) {
+            locked = true
+        }
+        if (live && cursor.isNotBlank()) scope.launch { runCatching { pollOnce() } }
+    }
+
+    fun onBackground() {
+        foreground = false
+        stoppedAt = System.currentTimeMillis()
     }
 
     fun toggleLive() {
@@ -159,7 +259,7 @@ class AppState(private val ctx: Context) {
         pollJob?.cancel()
         pollJob = scope.launch {
             while (true) {
-                delay(5000)
+                delay(if (foreground) 5_000L else 30_000L)
                 if (!live || storeUrl.isBlank() || adminToken.isBlank() || loading) continue
                 runCatching { pollOnce() }
             }
@@ -167,66 +267,242 @@ class AppState(private val ctx: Context) {
     }
 
     private suspend fun pollOnce() {
-        if (cursor.isBlank()) return
+        if (cursor.isBlank() || syncing) return
         syncing = true
         try {
-            val (list, time) = Api.orders(since = cursor, limit = 60)
+            val (list, time) = Api.orders(since = cursor, limit = 80)
             if (time.isNotBlank()) {
                 cursor = time
-                lastSync = time.take(19).replace("T", " ")
+                lastSync = time.take(19)
             }
-            if (list.isNotEmpty()) {
-                val known = orders.map { it.id }.toSet()
-                val fresh = list.filter { it.id !in known }
-                val merged = ArrayList(orders)
-                for (o in list) {
-                    val i = merged.indexOfFirst { it.id == o.id }
-                    if (i >= 0) merged[i] = o else merged.add(o)
-                }
-                orders = merged.sortedByDescending { it.id }
-                if (fresh.isNotEmpty()) {
-                    newBadge += fresh.size
-                    val title = if (fresh.size == 1) "New order " + fresh[0].ref
-                        else fresh.size.toString() + " new orders"
-                    val text = fresh.joinToString("\n") {
-                        it.name + " · " + it.city + " · " + rs(it.total)
-                    }
-                    Notify.newOrder(ctx, title, text)
-                    flash(title)
-                }
-            }
+            if (list.isNotEmpty()) merge(list)
             tick++
-            if (tick % 12 == 0) loadRest()
+            // Products, stock, stats and offers: one bootstrap call about once a minute.
+            if (tick % 12 == 0) runCatching { boot(quiet = true) }
         } finally {
             syncing = false
         }
     }
 
+    private fun merge(list: List<Order>) {
+        val known = orders.map { it.id }.toHashSet()
+        val fresh = list.filter { it.id !in known }
+        val byId = LinkedHashMap<Long, Order>()
+        for (o in orders) byId[o.id] = o
+        for (o in list) byId[o.id] = o
+        orders = byId.values.sortedByDescending { it.id }
+        if (fresh.isNotEmpty()) {
+            newBadge += fresh.size
+            val title = if (fresh.size == 1) "New order " + fresh[0].ref else fresh.size.toString() + " new orders"
+            val text = fresh.joinToString("\n") {
+                val r = risk(it)
+                it.name + " · " + it.city + " · " + rs(it.total) + (if (r.level == "high") " · high risk" else "")
+            }
+            Notify.newOrder(ctx, title, text)
+            flash(title)
+        }
+    }
+
+    private suspend fun boot(quiet: Boolean) {
+        try {
+            val (b, raw) = Api.bootstrap(range)
+            applyBoot(b)
+            saveCache(raw)
+            checkAlerts()
+        } catch (e: ApiError) {
+            // Worker not yet on 1.6: fall back to the separate calls.
+            if (!quiet) legacyLoad()
+        }
+    }
+
+    private suspend fun legacyLoad() {
+        val (list, time) = Api.orders(limit = 300)
+        orders = list
+        cursor = time
+        lastSync = time.take(19)
+        runCatching { stats = Api.stats(range) }
+        runCatching { products = Api.products() }
+        runCatching { fabrics = Api.fabrics() }
+        runCatching { discounts = Api.discounts() }
+        runCatching { banners = Api.banners() }
+    }
+
+    fun refresh() {
+        scope.launch {
+            loading = true
+            try {
+                boot(quiet = false)
+                newBadge = 0
+            } catch (e: Exception) {
+                flash(e.message ?: "Sync failed")
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    /** Pull-to-refresh: same as refresh but drives the pull indicator. */
+    fun pullRefresh() {
+        scope.launch {
+            refreshing = true
+            try { boot(quiet = false) } catch (e: Exception) { flash(e.message ?: "Sync failed") }
+            finally { refreshing = false }
+        }
+    }
+
+    // ---- derived lists (cached so scrolling never re-groups) ---------------
+
     val openOrder: Order? get() = orders.firstOrNull { it.id == openOrderId }
 
     val visibleOrders: List<Order>
-        get() = orders.filter { o ->
-            (filter == "all" || o.status.equals(filter, true)) &&
-                (query.isBlank() ||
-                    o.name.contains(query, true) ||
-                    o.phone.contains(query) ||
-                    o.id.toString().contains(query))
+        get() {
+            val q = query.trim()
+            val from = when (dateFilter) {
+                "today" -> Dates.startOfToday()
+                "yesterday" -> Dates.startOfToday() - 86_400_000L
+                "7d" -> Dates.startOfToday() - 6 * 86_400_000L
+                else -> 0L
+            }
+            val to = if (dateFilter == "yesterday") Dates.startOfToday() else Long.MAX_VALUE
+            return orders.filter { o ->
+                (filter == "all" || o.st == filter ||
+                    (filter == "risky" && risk(o).level == "high" && o.st in OPEN) ||
+                    (filter == "unpaid" && o.st == "delivered" && !o.codPaid)) &&
+                    (from == 0L || (o.placedAt in from until to)) &&
+                    (q.isBlank() ||
+                        o.name.contains(q, true) ||
+                        o.phone.contains(q) ||
+                        o.localPhone.contains(q) ||
+                        o.city.contains(q, true) ||
+                        o.tracking.contains(q, true) ||
+                        o.id.toString() == q.removePrefix("#"))
+            }
         }
 
-    val pendingOrders: List<Order> get() = orders.filter { it.status.equals("pending", true) }
+    val pendingOrders: List<Order> get() = orders.filter { it.st == "pending" }
+
+    val todayOrders: List<Order>
+        get() {
+            val from = Dates.startOfToday()
+            return orders.filter { it.placedAt >= from }
+        }
+
+    val stalePending: List<Order> get() = orders.filter { it.st == "pending" && it.ageHours >= 24 }
+    val stuckParcels: List<Order> get() = orders.filter { it.st == "shipped" && it.ageHours >= 120 }
+    val codOutstanding: List<Order> get() = orders.filter { it.st == "delivered" && !it.codPaid }
 
     fun counts(): Map<String, Int> {
         val m = HashMap<String, Int>()
         m["all"] = orders.size
-        for (o in orders) m[o.status.lowercase()] = (m[o.status.lowercase()] ?: 0) + 1
+        for (o in orders) m[o.st] = (m[o.st] ?: 0) + 1
+        m["risky"] = orders.count { it.st in OPEN && risk(it).level == "high" }
+        m["unpaid"] = codOutstanding.size
         return m
     }
+
+    private var custKey: List<Order>? = null
+    private var custCache: List<Customer> = emptyList()
+    private var phoneIndex: Map<String, List<Order>> = emptyMap()
+
+    private fun ensureCustomers() {
+        val o = orders
+        if (custKey === o) return
+        val groups = o.groupBy { it.localPhone.ifBlank { it.name } }
+        phoneIndex = groups
+        custCache = groups.map { (phone, list) ->
+            val sorted = list.sortedByDescending { it.id }
+            Customer(sorted.first().name, phone, sorted.first().city, sorted)
+        }.sortedByDescending { it.orders.firstOrNull()?.id ?: 0L }
+        custKey = o
+    }
+
+    val customers: List<Customer> get() { ensureCustomers(); return custCache }
+
+    val visibleCustomers: List<Customer>
+        get() = customers.filter {
+            (customerFilter == "all" ||
+                (customerFilter == "repeat" && it.count > 1) ||
+                (customerFilter == "vip" && it.vip) ||
+                (customerFilter == "risky" && it.bad > 0)) &&
+                (customerQuery.isBlank() ||
+                    it.name.contains(customerQuery, true) ||
+                    it.phone.contains(customerQuery) ||
+                    it.city.contains(customerQuery, true))
+        }
+
+    val openCustomer: Customer? get() = customers.firstOrNull { it.phone == openPhone }
+
+    fun openCustomer(c: Customer) {
+        openPhone = c.phone
+        screen = Screen.CustomerDetail
+    }
+
+    fun customerOf(o: Order): Customer? {
+        ensureCustomers()
+        return custCache.firstOrNull { it.phone == o.localPhone.ifBlank { o.name } }
+    }
+
+    fun isBlocked(phone: String): Boolean {
+        val p = phone.filter { it.isDigit() }.let { if (it.startsWith("92")) "0" + it.substring(2) else it }
+        return blocked.any { it.phone == p }
+    }
+
+    fun risk(o: Order): Risk {
+        ensureCustomers()
+        val reasons = ArrayList<String>()
+        var s = 0
+        if (isBlocked(o.phone)) { s += 100; reasons.add("This number is on your blocklist") }
+        val past = (phoneIndex[o.localPhone.ifBlank { o.name }] ?: emptyList()).filter { it.id != o.id }
+        val bad = past.count { it.st in BAD }
+        val good = past.count { it.st == "delivered" }
+        if (bad > 0) {
+            s += (bad * 25).coerceAtMost(75)
+            reasons.add(bad.toString() + " earlier order" + (if (bad > 1) "s" else "") + " returned, cancelled or fake")
+        } else if (o.riskNote.isNotBlank()) {
+            s += 20; reasons.add(o.riskNote)
+        }
+        if (good > 0) {
+            s -= (good * 20).coerceAtMost(40)
+            reasons.add(good.toString() + " delivered before — a known buyer")
+        }
+        if (past.any { it.st in OPEN && kotlin.math.abs(it.placedAt - o.placedAt) < 86_400_000L }) {
+            s += 20; reasons.add("Another open order from this number within 24 hours")
+        }
+        if (o.address.trim().length < 20) { s += 15; reasons.add("Short address — ask for a landmark") }
+        if (past.isEmpty() && o.total >= 10_000) { s += 15; reasons.add("First order, above Rs 10,000") }
+        if (o.waStatus == "declined") { s += 40; reasons.add("Said NO on WhatsApp") }
+        if (o.waStatus == "confirmed") { s -= 15; reasons.add("Confirmed on WhatsApp") }
+        return Risk(s.coerceIn(0, 100), reasons)
+    }
+
+    /** What to take off the shelf for every confirmed order. */
+    fun pickList(includePending: Boolean): List<PickLine> {
+        val src = orders.filter { it.st == "confirmed" || (includePending && it.st == "pending") }
+        val map = LinkedHashMap<String, PickLine>()
+        for (o in src) for (li in o.items) {
+            val k = li.name.trim().lowercase() + "|" + li.size
+            val cur = map[k]
+            map[k] = if (cur == null) PickLine(li.name, li.size, li.qty, listOf(o.id))
+            else cur.copy(qty = cur.qty + li.qty, orderIds = cur.orderIds + o.id)
+        }
+        return map.values.sortedByDescending { it.qty }
+    }
+
+    fun sharePickList(lines: List<PickLine>) {
+        val text = "Calista pick list · " + Dates.stamp(System.currentTimeMillis()) + "\n\n" +
+            lines.joinToString("\n") { "☐ " + it.qty + " × " + it.name + (if (it.size != "-") " (" + it.size + ")" else "") } +
+            "\n\n" + lines.flatMap { it.orderIds }.distinct().size + " orders"
+        shareText(text, "Share pick list")
+    }
+
+    // ---- navigation --------------------------------------------------------
 
     fun go(s: Screen) {
         screen = s
         if (s == Screen.Orders || s == Screen.Today) newBadge = 0
         if (s == Screen.Discounts && discounts.isEmpty()) loadDiscounts()
         if (s == Screen.Banners && banners.isEmpty()) loadBanners()
+        if (s == Screen.Reviews) loadReviews()
     }
 
     fun openOrder(id: Long, from: Screen) {
@@ -240,6 +516,8 @@ class AppState(private val ctx: Context) {
         scope.launch { delay(3200); if (toast == msg) toast = "" }
     }
 
+    // ---- connect / lock / prefs -------------------------------------------
+
     fun connect(url: String, token: String) {
         val clean = url.trim().trimEnd('/').let { if (it.startsWith("http")) it else "https://" + it }
         storeUrl = clean
@@ -250,13 +528,9 @@ class AppState(private val ctx: Context) {
         scope.launch {
             loading = true
             try {
-                val (list, time) = Api.orders()
-                orders = list
-                cursor = time
-                lastSync = time.take(19).replace("T", " ")
+                boot(quiet = false)
                 screen = Screen.Today
-                flash("Connected · " + list.size + " orders")
-                loadRest()
+                flash("Connected · " + orders.size + " orders")
             } catch (e: Exception) {
                 flash(e.message ?: "Cannot reach store")
             } finally {
@@ -266,36 +540,30 @@ class AppState(private val ctx: Context) {
     }
 
     fun signOut() {
-        prefs.edit().clear().apply()
+        prefs.edit().remove("base").remove("token").apply()
+        runCatching { cacheFile.delete() }
         storeUrl = ""; adminToken = ""; orders = emptyList(); products = emptyList(); stats = null
+        cursor = ""
         screen = Screen.Connect
     }
 
-    fun refresh() {
-        scope.launch {
-            loading = true
-            try {
-                val (list, time) = Api.orders()
-                orders = list
-                cursor = time
-                lastSync = time.take(19).replace("T", " ")
-                newBadge = 0
-                loadRest()
-            } catch (e: Exception) {
-                flash(e.message ?: "Sync failed")
-            } finally {
-                loading = false
-            }
-        }
+    fun setPin(p: String) {
+        val clean = p.filter { it.isDigit() }
+        if (clean.isNotEmpty() && clean.length != 4) { flash("PIN must be 4 digits"); return }
+        pin = clean
+        prefs.edit().putString("pin", clean).apply()
+        flash(if (clean.isBlank()) "App lock off" else "App lock on")
     }
 
-    private suspend fun loadRest() {
-        runCatching { stats = Api.stats(range) }
-        runCatching { products = Api.products() }
-        runCatching { fabrics = Api.fabrics() }
-        runCatching { discounts = Api.discounts() }
-        runCatching { banners = Api.banners() }
-        runCatching { checkAlerts() }
+    fun unlock(p: String): Boolean {
+        if (p == pin) { locked = false; return true }
+        return false
+    }
+
+    fun setGoal(v: String) {
+        goal = v.filter { it.isDigit() }.toIntOrNull() ?: 0
+        prefs.edit().putInt("goal", goal).apply()
+        flash(if (goal == 0) "Daily target off" else "Daily target " + rs(goal))
     }
 
     fun pickRange(r: String) {
@@ -303,8 +571,10 @@ class AppState(private val ctx: Context) {
         scope.launch { runCatching { stats = Api.stats(r) } }
     }
 
+    // ---- order actions -----------------------------------------------------
+
     fun advance(o: Order) {
-        val next = when (o.status.lowercase()) {
+        val next = when (o.st) {
             "pending" -> "confirmed"
             "confirmed" -> "packed"
             "shipped" -> "delivered"
@@ -327,6 +597,30 @@ class AppState(private val ctx: Context) {
         }
     }
 
+    private fun patchLocal(o: Order, body: JSONObject, local: (Order) -> Order, ok: String) {
+        val before = orders
+        orders = orders.map { if (it.id == o.id) local(it) else it }
+        scope.launch {
+            try { Api.patchOrder(o.id, body); flash(ok) }
+            catch (e: Exception) { orders = before; flash(e.message ?: "Could not save") }
+        }
+    }
+
+    fun saveNote(o: Order, note: String) =
+        patchLocal(o, JSONObject().put("admin_note", note.trim()), { it.copy(note = note.trim()) }, "Note saved")
+
+    fun saveContact(o: Order, name: String, phone: String, address: String, city: String) {
+        val body = JSONObject().put("name", name).put("phone", phone).put("address", address).put("city", city)
+        patchLocal(o, body, { it.copy(name = name, phone = phone, address = address, city = city) }, "Delivery details saved")
+    }
+
+    fun setCodPaid(o: Order, paid: Boolean) =
+        patchLocal(
+            o, JSONObject().put("cod_paid", paid),
+            { it.copy(codPaidAt = if (paid) "now" else "") },
+            if (paid) o.ref + " · cash received" else o.ref + " · marked unpaid",
+        )
+
     fun toggleSelect(id: Long) {
         selected = if (id in selected) selected - id else selected + id
     }
@@ -335,15 +629,29 @@ class AppState(private val ctx: Context) {
 
     fun selectAllVisible() { selected = visibleOrders.map { it.id }.toSet() }
 
-    fun bulkStatus(status: String) {
-        val ids = selected.toList()
+    fun bulkStatus(status: String) = bulk(selected.toList(), JSONObject().put("status", status),
+        { it.copy(status = status) }, "→ " + status)
+
+    fun bulkCodPaid(ids: List<Long>) = bulk(ids, JSONObject().put("cod_paid", true),
+        { it.copy(codPaidAt = "now") }, "cash received")
+
+    private fun bulk(ids: List<Long>, body: JSONObject, local: (Order) -> Order, label: String) {
         if (ids.isEmpty()) return
-        orders = orders.map { if (it.id in selected) it.copy(status = status) else it }
+        val set = ids.toHashSet()
+        val before = orders
+        orders = orders.map { if (it.id in set) local(it) else it }
         selected = emptySet()
         scope.launch {
-            var ok = 0
-            for (id in ids) runCatching { Api.setStatus(id, status) }.onSuccess { ok++ }
-            flash(ok.toString() + " of " + ids.size + " orders → " + status)
+            try {
+                Api.bulkOrders(ids, body)
+                flash(ids.size.toString() + " orders " + label)
+            } catch (e: ApiError) {
+                // Worker before 1.6 — one request per order.
+                var ok = 0
+                for (id in ids) runCatching { Api.patchOrder(id, JSONObject(body.toString())) }.onSuccess { ok++ }
+                if (ok == 0) orders = before
+                flash(ok.toString() + " of " + ids.size + " orders " + label)
+            }
         }
     }
 
@@ -364,8 +672,136 @@ class AppState(private val ctx: Context) {
         }
     }
 
-    fun bumpStock(p: Product, delta: Int) {
-        val next = (p.stock + delta).coerceAtLeast(0)
+    fun track(o: Order) {
+        if (o.tracking.isBlank()) return
+        scope.launch {
+            runCatching { Api.trackPostEx(o.tracking) }
+                .onSuccess { st ->
+                    courierStatus = courierStatus + (o.id to st.ifBlank { "No update from courier yet" })
+                    if (st.isNotBlank()) orders = orders.map { if (it.id == o.id) it.copy(postexStatus = st) else it }
+                }
+                .onFailure { flash(it.message ?: "Tracking failed") }
+        }
+    }
+
+    // ---- manual orders -----------------------------------------------------
+
+    fun newOrder(from: Customer? = null, copy: Order? = null) {
+        val src = copy ?: from?.orders?.firstOrNull()
+        nName = src?.name ?: ""
+        nPhone = src?.localPhone ?: ""
+        nAddress = src?.address ?: ""
+        nCity = src?.city ?: ""
+        nLines = copy?.items?.map {
+            DraftLine(it.productId, it.name, if (it.size == "-") "" else it.size, it.qty, it.price, imageFor(it.name))
+        } ?: emptyList()
+        nDiscount = ""; nNote = ""; nSource = "whatsapp"; nStatus = "confirmed"
+        backTo = screen
+        screen = Screen.NewOrder
+    }
+
+    fun addLine(p: Product) {
+        val i = nLines.indexOfFirst { it.productId == p.id && it.size.isBlank() }
+        nLines = if (i >= 0) nLines.mapIndexed { j, l -> if (j == i) l.copy(qty = l.qty + 1) else l }
+        else nLines + DraftLine(p.id, p.name, "", 1, p.unitPrice, p.image)
+    }
+
+    fun setLine(i: Int, line: DraftLine) {
+        nLines = if (line.qty <= 0) nLines.filterIndexed { j, _ -> j != i }
+        else nLines.mapIndexed { j, l -> if (j == i) line else l }
+    }
+
+    val nSubtotal: Int get() = nLines.sumOf { it.price * it.qty }
+    val nTotal: Int get() = (nSubtotal - (nDiscount.filter { it.isDigit() }.toIntOrNull() ?: 0)).coerceAtLeast(0)
+
+    fun saveNewOrder() {
+        if (nName.isBlank() || nPhone.isBlank() || nAddress.isBlank() || nCity.isBlank()) {
+            flash("Name, phone, address and city are needed"); return
+        }
+        if (nLines.isEmpty()) { flash("Add at least one item"); return }
+        val items = JSONArray()
+        for (l in nLines) {
+            items.put(
+                JSONObject()
+                    .put("product_id", (if (l.productId > 0) l.productId else JSONObject.NULL) as Any)
+                    .put("name", l.name)
+                    .put("size", (if (l.size.isBlank()) JSONObject.NULL else l.size) as Any)
+                    .put("qty", l.qty).put("price", l.price)
+            )
+        }
+        val body = JSONObject()
+            .put("name", nName.trim()).put("phone", nPhone.trim())
+            .put("address", nAddress.trim()).put("city", nCity.trim())
+            .put("items", items)
+            .put("discount_amount", nDiscount.filter { it.isDigit() }.toIntOrNull() ?: 0)
+            .put("note", nNote.trim()).put("source", nSource).put("status", nStatus)
+        scope.launch {
+            saving = true
+            try {
+                val id = Api.createOrder(body)
+                runCatching { boot(quiet = true) }
+                flash("Order #" + id + " created")
+                openOrder(id, Screen.Orders)
+            } catch (e: Exception) {
+                flash(e.message ?: "Could not create the order")
+            } finally { saving = false }
+        }
+    }
+
+    // ---- blocklist ---------------------------------------------------------
+
+    fun block(phone: String, reason: String) {
+        scope.launch {
+            runCatching { Api.block(phone, reason) }
+                .onSuccess {
+                    val p = it.optString("phone", phone)
+                    blocked = listOf(Blocked(p, reason, "now")) + blocked.filter { b -> b.phone != p }
+                    flash(p + " blocked — the website will refuse it")
+                }
+                .onFailure { flash(it.message ?: "Could not block") }
+        }
+    }
+
+    fun unblock(phone: String) {
+        val before = blocked
+        blocked = blocked.filter { it.phone != phone }
+        scope.launch {
+            runCatching { Api.unblock(phone) }
+                .onSuccess { flash(phone + " unblocked") }
+                .onFailure { blocked = before; flash("Could not unblock") }
+        }
+    }
+
+    // ---- reviews -----------------------------------------------------------
+
+    fun loadReviews() {
+        scope.launch {
+            runCatching { Api.reviews() }
+                .onSuccess { reviews = it }
+                .onFailure { flash(it.message ?: "Could not load reviews") }
+        }
+    }
+
+    fun approveReview(r: Review, on: Boolean) {
+        reviews = reviews.map { if (it.id == r.id) it.copy(approved = on) else it }
+        scope.launch {
+            runCatching { Api.setReview(r.id, on) }
+                .onSuccess { flash(if (on) "Review is live on the website" else "Review hidden") }
+                .onFailure { flash("Could not save") }
+        }
+    }
+
+    fun deleteReview(r: Review) {
+        reviews = reviews.filter { it.id != r.id }
+        scope.launch { runCatching { Api.deleteReview(r.id) }.onFailure { flash("Could not delete") } }
+    }
+
+    // ---- products ----------------------------------------------------------
+
+    fun bumpStock(p: Product, delta: Int) = setStock(p, p.stock + delta)
+
+    fun setStock(p: Product, value: Int) {
+        val next = value.coerceAtLeast(0)
         products = products.map { if (it.id == p.id) it.copy(stock = next) else it }
         scope.launch {
             runCatching { Api.setProduct(p.id, JSONObject().put("stock", next)) }
@@ -383,33 +819,28 @@ class AppState(private val ctx: Context) {
     }
 
     val visibleProducts: List<Product>
-        get() = products.filter { productQuery.isBlank() || it.name.contains(productQuery, true) }
-
-    // ---- customers ---------------------------------------------------------
-
-    val customers: List<Customer>
-        get() = orders.groupBy { it.localPhone.ifBlank { it.name } }
-            .map { (phone, list) ->
-                val newest = list.maxByOrNull { it.id }!!
-                Customer(newest.name, phone, newest.city, list.sortedByDescending { it.id })
-            }
-            .sortedByDescending { it.orders.firstOrNull()?.id ?: 0L }
-
-    val visibleCustomers: List<Customer>
-        get() = customers.filter {
-            customerQuery.isBlank() ||
-                it.name.contains(customerQuery, true) ||
-                it.phone.contains(customerQuery)
+        get() = products.filter {
+            (productFilter == "all" ||
+                (productFilter == "low" && it.stock in 1..3) ||
+                (productFilter == "out" && it.stock <= 0) ||
+                (productFilter == "hidden" && !it.active) ||
+                (productFilter == "sale" && it.sale != null && it.sale > 0)) &&
+                (productQuery.isBlank() || it.name.contains(productQuery, true) || it.fabric.contains(productQuery, true))
         }
 
-    val openCustomer: Customer? get() = customers.firstOrNull { it.phone == openPhone }
-
-    fun openCustomer(c: Customer) {
-        openPhone = c.phone
-        screen = Screen.CustomerDetail
+    /** Units sold per product name, from the loaded orders. */
+    fun unitsSold(p: Product): Int {
+        val n = p.name.trim().lowercase()
+        return orders.filter { it.st !in DEAD }.sumOf { o -> o.items.filter { it.name.trim().lowercase() == n }.sumOf { it.qty } }
     }
 
-    // ---- product editor ----------------------------------------------------
+    fun productLink(p: Product): String =
+        if (p.slug.isBlank()) storeUrl else storeUrl.trimEnd('/') + "/product.html?slug=" + Uri.encode(p.slug)
+
+    fun shareProduct(p: Product) {
+        val price = if (p.sale != null && p.sale > 0) rs(p.sale) + " (was " + rs(p.price) + ")" else rs(p.price)
+        shareText(p.name + "\n" + price + " · cash on delivery\n\n" + productLink(p), "Share product")
+    }
 
     fun newProduct() {
         draftId = 0; dName = ""; dFabric = ""; dPrice = ""; dSale = ""; dStock = "0"
@@ -429,16 +860,21 @@ class AppState(private val ctx: Context) {
         screen = Screen.ProductEdit
     }
 
+    /** Keeps every field, clears the id — saving creates a new product. */
+    fun duplicateDraft() {
+        draftId = 0
+        dName = dName.trim() + " (copy)"
+        dStock = "0"
+        flash("Copy ready — change what differs and save")
+    }
+
     fun saveDraft() {
         if (dName.isBlank()) { flash("Give the product a name"); return }
         val body = JSONObject()
             .put("name", dName.trim())
             .put("fabric", dFabric.trim())
             .put("price", dPrice.filter { it.isDigit() }.toIntOrNull() ?: 0)
-            .put(
-                "sale_price",
-                (dSale.filter { it.isDigit() }.toIntOrNull() ?: JSONObject.NULL) as Any,
-            )
+            .put("sale_price", (dSale.filter { it.isDigit() }.toIntOrNull() ?: JSONObject.NULL) as Any)
             .put("stock", dStock.filter { it.isDigit() }.toIntOrNull() ?: 0)
             .put("image", dImage.trim())
             .put("active", if (dActive) 1 else 0)
@@ -478,15 +914,11 @@ class AppState(private val ctx: Context) {
 
     // ---- photo upload ------------------------------------------------------
 
-    /**
-     * Shrinks the picture, uploads it to the store's image bucket and writes the returned
-     * path into whichever draft asked for it.
-     */
-    fun uploadPhoto(uri: android.net.Uri, into: (String) -> Unit) {
+    fun uploadPhoto(uri: Uri, into: (String) -> Unit) {
         scope.launch {
             uploading = true
             try {
-                val file = Photo.prepare(ctx, uri)
+                val file = withContext(Dispatchers.IO) { Photo.prepare(ctx, uri) }
                 if (file == null) { flash("Could not read that picture"); return@launch }
                 val url = Api.upload(file)
                 into(url)
@@ -500,8 +932,7 @@ class AppState(private val ctx: Context) {
         }
     }
 
-    fun uploadCameraFile(file: java.io.File, into: (String) -> Unit) =
-        uploadPhoto(android.net.Uri.fromFile(file), into)
+    fun uploadCameraFile(file: File, into: (String) -> Unit) = uploadPhoto(Uri.fromFile(file), into)
 
     // ---- discounts ---------------------------------------------------------
 
@@ -662,26 +1093,24 @@ class AppState(private val ctx: Context) {
                 2002,
             )
         }
-        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-            .format(java.util.Date())
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         if (hour >= 20 && summaryDay != today) {
             summaryDay = today
-            val st = stats
-            if (st != null) {
-                Notify.newOrder(
-                    ctx,
-                    "Today: " + rs(st.sales),
-                    st.orders.toString() + " orders · " + rs(st.cod) + " to collect on delivery",
-                    2003,
-                )
-            }
+            val t = todayOrders
+            val sales = t.filter { it.st !in DEAD }.sumOf { it.total }
+            Notify.newOrder(
+                ctx,
+                "Today: " + rs(sales) + (if (goal > 0) " of " + rs(goal) else ""),
+                t.size.toString() + " orders · " + pendingOrders.size + " still pending · " +
+                    rs(codOutstanding.sumOf { it.total }) + " COD not yet received",
+                2003,
+            )
         }
     }
 
     fun shareInvoice(o: Order) = Invoice.share(ctx, o)
 
-    /** Order card + message: one WhatsApp send that shows the customer their items. */
     fun whatsAppWithPhotos(o: Order, template: String) {
         scope.launch {
             loading = true
@@ -694,7 +1123,7 @@ class AppState(private val ctx: Context) {
                 }
                 OrderCard.share(ctx, file, WaTemplates.fill(template, o), o.waDigits)
                 runCatching { Api.logWhatsApp(o.id, template) }
-                orders = orders.map { if (it.id == o.id) it.copy(waStatus = "sent") else it }
+                orders = orders.map { if (it.id == o.id && it.waStatus == "none") it.copy(waStatus = "sent") else it }
                 flash("Opening " + o.firstName + "'s chat · " + o.localPhone)
             } catch (e: Exception) {
                 flash(e.message ?: "Could not open WhatsApp")
@@ -706,17 +1135,21 @@ class AppState(private val ctx: Context) {
 
     // ---- phone intents -----------------------------------------------------
 
+    private fun shareText(text: String, title: String) {
+        val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+        val chooser = Intent.createChooser(i, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { ctx.startActivity(chooser) }.onFailure { flash("Nothing to share with") }
+    }
+
     fun call(o: Order) {
-        ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + o.localPhone)))
+        val i = Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + o.localPhone)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { ctx.startActivity(i) }
     }
 
     fun copyAddress(o: Order) {
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.setPrimaryClip(
-            android.content.ClipData.newPlainText(
-                "address",
-                o.name + "\n" + o.localPhone + "\n" + o.address + ", " + o.city
-            )
+            android.content.ClipData.newPlainText("address", o.name + "\n" + o.localPhone + "\n" + o.address + ", " + o.city)
         )
         flash("Address copied for the courier slip")
     }
@@ -726,25 +1159,28 @@ class AppState(private val ctx: Context) {
         val uri = Uri.parse("https://wa.me/" + o.waDigits + "?text=" + Uri.encode(text))
         val i = Intent(Intent.ACTION_VIEW, uri)
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching { ctx.startActivity(i) }
-            .onFailure { flash("WhatsApp is not installed") }
+        runCatching { ctx.startActivity(i) }.onFailure { flash("WhatsApp is not installed") }
         scope.launch { runCatching { Api.logWhatsApp(o.id, template) } }
-        orders = orders.map { if (it.id == o.id) it.copy(waStatus = "sent") else it }
+        orders = orders.map { if (it.id == o.id && it.waStatus == "none") it.copy(waStatus = "sent") else it }
     }
 }
 
 object WaTemplates {
-    val keys = listOf("confirm", "address", "dispatch", "cod")
+    val keys = listOf("confirm", "address", "dispatch", "cod", "review", "restock")
 
     fun label(key: String) = when (key) {
         "confirm" -> "Confirm order"
         "address" -> "Ask address"
         "dispatch" -> "Dispatched"
-        else -> "COD reminder"
+        "cod" -> "COD reminder"
+        "review" -> "Ask for review"
+        else -> "Come back offer"
     }
 
     fun fill(key: String, o: Order): String {
-        val items = o.items.joinToString("\n") { "· " + it.name + " (size " + it.size + ") x " + it.qty }
+        val items = o.items.joinToString("\n") {
+            "· " + it.name + (if (it.size != "-") " (size " + it.size + ")" else "") + " x " + it.qty
+        }
         return when (key) {
             "confirm" ->
                 "Assalam-o-alaikum " + o.firstName + "! This is Calista.\n\n" +
@@ -759,9 +1195,16 @@ object WaTemplates {
                     "Courier: " + (if (o.courier.isBlank()) "PostEx" else o.courier) + "\n" +
                     "Tracking: " + (if (o.tracking.isBlank()) "pending" else o.tracking) + "\n\n" +
                     "Please keep " + rs(o.total) + " ready for the rider. Shukriya!"
-            else ->
+            "cod" ->
                 o.firstName + ", your Calista parcel " + o.ref + " is out for delivery today.\n\n" +
                     "Amount to pay the rider: " + rs(o.total) + " (cash on delivery)."
+            "review" ->
+                o.firstName + ", we hope you love your Calista order " + o.ref + "!\n\n" +
+                    "Could you send us a photo or a line about the fabric? It helps other " +
+                    "customers choose. Shukriya!"
+            else ->
+                o.firstName + ", thank you for shopping with Calista. New arrivals are live now — " +
+                    "reply to this message and we will send you this week's picks."
         }
     }
 }
