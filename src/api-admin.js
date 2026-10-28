@@ -1,63 +1,28 @@
 /**
- * Calista merchant app — admin API for Cloudflare Workers / Pages Functions.
+ * Calista merchant app — admin API (v1.6).
  *
- * This file is the ONLY thing that stands between the Android app and your D1
- * database. Nothing else in your website changes.
+ * Every request from the Android app carries "Authorization: Bearer <token>".
+ * handleAdmin() answers those and returns null for everything else, so the
+ * website's own Basic-auth admin keeps working untouched.
  *
- * ── THE ONE THING YOU MUST EDIT ─────────────────────────────────────────────
- * The COL / PCOL maps below. Left side = what the app expects (never change it).
- * Right side = the real column name in YOUR D1 tables (change these to match).
- * Get your real names with:
- *   SELECT group_concat(name, ', ') FROM pragma_table_info('orders');
- *   SELECT group_concat(name, ', ') FROM pragma_table_info('products');
- * ────────────────────────────────────────────────────────────────────────────
+ * New in 1.6
+ *   GET    /api/admin/app/bootstrap        everything the app needs, one round trip
+ *   POST   /api/admin/app/orders           manual order (WhatsApp / Instagram / phone)
+ *   POST   /api/admin/app/orders/bulk      one request for many orders
+ *   PATCH  /api/admin/orders/:id           + note, address, COD received, "fake"
+ *   GET/POST/DELETE /api/admin/app/blocked numbers refused at checkout
+ *   GET/PATCH/DELETE /api/admin/app/reviews storefront review moderation
+ * Columns the app needs are added automatically on first request.
  */
 
-const COL = {
-  id: 'id',
-  name: 'customer_name',
-  phone: 'phone',
-  city: 'city',
-  address: 'address',
-  status: 'status',
-  total: 'total',
-  created_at: 'created_at',
-  items: 'items_json',
-  updated_at: 'updated_at',
-  courier: 'courier',
-  tracking: 'tracking',
-  wa_status: 'wa_status',
-  wa_last_sent: 'wa_last_sent',
-};
-
-// Your orders table has no payment column - every order is Cash on Delivery.
-const PAYMENT_LITERAL = "'COD'";
-
-const PCOL = {
-  id: 'id',
-  name: 'name',
-  fabric: 'fabric',
-  price: 'price',
-  sale_price: 'sale_price',
-  stock: 'stock',
-  active: 'is_active',
-  image: 'image_url',
-};
-
-const ORDERS = 'orders';
-const PRODUCTS = 'products';
-
-// ── helpers ────────────────────────────────────────────────────────────────
+const STATUSES = ['pending', 'confirmed', 'packed', 'shipped', 'delivered', 'returned', 'cancelled', 'fake'];
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
 
-// The app sends "Authorization: Bearer <token>". The website's own admin page sends
-// "Basic ..." - a different scheme, so the two never collide.
-// Accepts ADMIN_TOKEN if you set one; otherwise your existing ADMIN_PASSWORD works.
 const authed = (request, env) => {
   const h = request.headers.get('authorization') || '';
   if (!h.startsWith('Bearer ')) return false;
@@ -68,168 +33,393 @@ const authed = (request, env) => {
 
 const now = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-const orderSelect = `
-  SELECT ${COL.id} AS id, ${COL.name} AS name, ${COL.phone} AS phone,
-         ${COL.city} AS city, ${COL.address} AS address, ${COL.status} AS status,
-         ${PAYMENT_LITERAL} AS payment, ${COL.total} AS total,
-         ${COL.created_at} AS created_at, ${COL.items} AS items,
-         ${COL.courier} AS courier, ${COL.tracking} AS tracking,
-         ${COL.wa_status} AS wa_status
-  FROM ${ORDERS}`;
+// Same rule as the website checkout: 03XXXXXXXXX or null.
+function normalisePhone(input) {
+  let d = String(input || '').replace(/[^0-9]/g, '');
+  if (d.startsWith('0092')) d = d.slice(4);
+  else if (d.startsWith('92')) d = d.slice(2);
+  if (d.startsWith('3')) d = '0' + d;
+  return /^03[0-9]{9}$/.test(d) ? d : null;
+}
 
-/**
- * Handles every /api/admin/* request.
- * Returns a Response, or null when the path is not ours (so your existing
- * website routing carries on untouched).
- */
+let SCHEMA_OK = false;
+async function ensureAppSchema(db) {
+  if (SCHEMA_OK) return;
+  try {
+    const { results } = await db.prepare("SELECT name FROM pragma_table_info('orders')").all();
+    const have = new Set((results || []).map((r) => r.name));
+    const want = {
+      updated_at: 'TEXT', courier: 'TEXT', tracking: 'TEXT', wa_status: "TEXT DEFAULT 'none'",
+      wa_last_sent: 'TEXT', admin_note: 'TEXT', cod_paid_at: 'TEXT', source: 'TEXT',
+      postex_tracking: 'TEXT', postex_status: 'TEXT', postex_booked_at: 'TEXT', verified_at: 'TEXT',
+      risk_note: 'TEXT', discount_code: 'TEXT', discount_amount: 'INTEGER DEFAULT 0',
+    };
+    for (const [c, t] of Object.entries(want)) {
+      if (!have.has(c)) {
+        try { await db.prepare(`ALTER TABLE orders ADD COLUMN ${c} ${t}`).run(); } catch (e) {}
+      }
+    }
+    for (const sql of [
+      'CREATE TABLE IF NOT EXISTS blocked_phones (phone TEXT PRIMARY KEY, reason TEXT, created_at TEXT)',
+      'CREATE TABLE IF NOT EXISTS wa_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, direction TEXT, body TEXT, created_at TEXT)',
+      'CREATE INDEX IF NOT EXISTS idx_orders_updated ON orders(updated_at)',
+      'CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(phone)',
+      'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)',
+    ]) {
+      try { await db.prepare(sql).run(); } catch (e) {}
+    }
+    SCHEMA_OK = true;
+  } catch (e) { /* retried on the next request */ }
+}
+
+const ORDER_SELECT = `
+  SELECT id, customer_name AS name, phone, city, address, status, 'COD' AS payment,
+         total, created_at, items_json AS items,
+         COALESCE(NULLIF(courier, ''),
+                  CASE WHEN postex_tracking IS NOT NULL AND postex_tracking <> '' THEN 'PostEx' END,
+                  '') AS courier,
+         COALESCE(NULLIF(tracking, ''), postex_tracking, '') AS tracking,
+         COALESCE(wa_status, 'none') AS wa_status,
+         discount_code, discount_amount, risk_note, admin_note, cod_paid_at, source,
+         postex_status, updated_at
+  FROM orders`;
+
+const PRODUCT_SELECT = `
+  SELECT id, name, slug, fabric, price, sale_price, stock, is_active AS active, image_url
+  FROM products`;
+
+// Sales exclude orders that never turned into money.
+function statsQueries(db, days) {
+  const from = `-${days} days`;
+  return [
+    db.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN status NOT IN ('cancelled','fake','returned') THEN total END), 0) AS sales,
+              COUNT(*) AS orders,
+              COALESCE(SUM(CASE WHEN status = 'shipped' THEN total END), 0) AS cod,
+              SUM(CASE WHEN status = 'shipped' THEN 1 ELSE 0 END) AS cod_count,
+              SUM(CASE WHEN status = 'returned' THEN 1 ELSE 0 END) AS returned
+       FROM orders WHERE created_at >= datetime('now', ?)`
+    ).bind(from),
+    // Pakistan time, so a 1 am order lands on the right day.
+    db.prepare(
+      `SELECT date(created_at, '+5 hours') AS d,
+              COALESCE(SUM(CASE WHEN status NOT IN ('cancelled','fake','returned') THEN total END), 0) AS v
+       FROM orders WHERE created_at >= datetime('now', ?)
+       GROUP BY d ORDER BY d`
+    ).bind(from),
+  ];
+}
+
+function statsJson(agg, daily, days) {
+  const byDay = {};
+  (daily || []).forEach((r) => { byDay[r.d] = r.v; });
+  const series = [];
+  const pk = Date.now() + 5 * 3600 * 1000;
+  const n = Math.min(days, 30);
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(pk - i * 86400000).toISOString().slice(0, 10);
+    series.push(byDay[d] || 0);
+  }
+  const a = agg || {};
+  return {
+    sales: a.sales || 0,
+    orders: a.orders || 0,
+    cod: a.cod || 0,
+    cod_count: a.cod_count || 0,
+    return_rate: a.orders ? `${Math.round(((a.returned || 0) * 100) / a.orders)}%` : '-',
+    series,
+  };
+}
+
+const rangeDays = (r) => {
+  const n = parseInt(String(r || '7').replace(/[^0-9]/g, ''), 10);
+  return n > 0 ? Math.min(n, 365) : 1;
+};
+
+async function postexCreds(db, env) {
+  let token = env.POSTEX_TOKEN || null;
+  let pickup = env.POSTEX_PICKUP_ADDRESS_CODE || null;
+  if (!token || !pickup) {
+    try {
+      const { results } = await db
+        .prepare("SELECT key, value FROM site_settings WHERE key IN ('postex_token', 'postex_pickup_code')")
+        .all();
+      for (const r of results || []) {
+        if (r.key === 'postex_token' && !token) token = (r.value || '').trim();
+        if (r.key === 'postex_pickup_code' && !pickup) pickup = (r.value || '').trim();
+      }
+    } catch (e) {}
+  }
+  return { token, pickup: pickup || '001' };
+}
+
+// Shared by single and bulk order edits.
+function orderSets(b) {
+  const sets = [];
+  const vals = [];
+  if (b.status !== undefined) {
+    if (!STATUSES.includes(b.status)) return { error: 'bad status' };
+    sets.push('status = ?'); vals.push(b.status);
+    if (b.status === 'confirmed') sets.push("verified_at = COALESCE(verified_at, datetime('now'))");
+  }
+  if (b.admin_note !== undefined) { sets.push('admin_note = ?'); vals.push(b.admin_note || null); }
+  if (b.name !== undefined) { sets.push('customer_name = ?'); vals.push(String(b.name).trim()); }
+  if (b.address !== undefined) { sets.push('address = ?'); vals.push(String(b.address).trim()); }
+  if (b.city !== undefined) { sets.push('city = ?'); vals.push(String(b.city).trim()); }
+  if (b.phone !== undefined) {
+    const p = normalisePhone(b.phone);
+    if (!p) return { error: 'Not a valid mobile number' };
+    sets.push('phone = ?'); vals.push(p);
+  }
+  if (b.cod_paid !== undefined) {
+    sets.push('cod_paid_at = ?'); vals.push(b.cod_paid ? now() : null);
+  }
+  if (!sets.length) return { error: 'nothing to update' };
+  sets.push('updated_at = ?'); vals.push(now());
+  return { sets, vals };
+}
+
 export async function handleAdmin(request, env) {
   const url = new URL(request.url);
   const p = url.pathname;
   if (!p.startsWith('/api/admin/')) return null;
-
-  // Not the app's token? Not ours - hand the request back to the existing website
-  // code (admin.html and its own /api/admin routes keep working untouched).
   if (!authed(request, env)) return null;
 
-  const db = env.DB; // must match the binding name in wrangler.toml
+  const db = env.DB;
   if (!db) return json({ error: 'D1 binding "DB" missing in wrangler.toml' }, 500);
+  await ensureAppSchema(db);
 
   const m = request.method;
+  let mm;
 
-  // GET /api/admin/orders?limit=120&since=...
+  // ── one-shot load ──────────────────────────────────────────────────────
+  if (p === '/api/admin/app/bootstrap' && m === 'GET') {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '300', 10), 500);
+    const days = rangeDays(url.searchParams.get('range'));
+    const [orders, products, agg, daily, discounts, banners, fabrics, blocked] = await db.batch([
+      db.prepare(`${ORDER_SELECT} ORDER BY id DESC LIMIT ?`).bind(limit),
+      db.prepare(`${PRODUCT_SELECT} ORDER BY id DESC LIMIT 500`),
+      ...statsQueries(db, days),
+      db.prepare('SELECT * FROM discounts ORDER BY is_active DESC, id DESC'),
+      db.prepare('SELECT * FROM banners ORDER BY sort_order ASC, id ASC'),
+      db.prepare('SELECT name FROM fabric_categories ORDER BY sort_order ASC'),
+      db.prepare('SELECT phone, reason, created_at FROM blocked_phones ORDER BY created_at DESC'),
+    ]);
+    return json({
+      server_time: now(),
+      orders: orders.results || [],
+      products: products.results || [],
+      stats: statsJson((agg.results || [])[0], daily.results, days),
+      discounts: discounts.results || [],
+      banners: banners.results || [],
+      fabrics: (fabrics.results || []).map((r) => r.name).filter(Boolean),
+      blocked: blocked.results || [],
+    });
+  }
+
+  // ── orders ─────────────────────────────────────────────────────────────
   if (p === '/api/admin/orders' && m === 'GET') {
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '120', 10), 500);
     const since = url.searchParams.get('since');
-    const sql = since
-      ? `${orderSelect} WHERE ${COL.updated_at} > ? ORDER BY ${COL.updated_at} DESC LIMIT ?`
-      : `${orderSelect} ORDER BY ${COL.id} DESC LIMIT ?`;
-    const stmt = since ? db.prepare(sql).bind(since, limit) : db.prepare(sql).bind(limit);
+    const stmt = since
+      ? db.prepare(`${ORDER_SELECT} WHERE updated_at >= ? ORDER BY updated_at DESC LIMIT ?`).bind(since, limit)
+      : db.prepare(`${ORDER_SELECT} ORDER BY id DESC LIMIT ?`).bind(limit);
     const { results } = await stmt.all();
     return json({ orders: results || [], server_time: now() });
   }
 
-  // PATCH /api/admin/orders/:id   { status }
-  let mm = p.match(/^\/api\/admin\/orders\/(\d+)$/);
-  if (mm && m === 'PATCH') {
-    const body = await request.json();
-    const allowed = ['pending', 'confirmed', 'packed', 'shipped', 'delivered', 'returned', 'cancelled'];
-    if (!allowed.includes(body.status)) return json({ error: 'bad status' }, 400);
-    await db
-      .prepare(`UPDATE ${ORDERS} SET ${COL.status} = ?, ${COL.updated_at} = ? WHERE ${COL.id} = ?`)
-      .bind(body.status, now(), mm[1])
+  if (p === '/api/admin/app/orders' && m === 'POST') {
+    const b = await request.json();
+    const phone = normalisePhone(b.phone);
+    if (!b.name || !phone || !b.address || !b.city) {
+      return json({ error: 'Name, a valid mobile number, address and city are needed' }, 400);
+    }
+    const lines = Array.isArray(b.items) ? b.items : [];
+    if (!lines.length) return json({ error: 'Add at least one item' }, 400);
+    const ids = lines.map((i) => parseInt(i.product_id, 10)).filter(Boolean);
+    const byId = {};
+    if (ids.length) {
+      const { results } = await db
+        .prepare(`SELECT id, name, price, sale_price FROM products WHERE id IN (${ids.map(() => '?').join(',')})`)
+        .bind(...ids)
+        .all();
+      (results || []).forEach((r) => { byId[r.id] = r; });
+    }
+    const priced = lines.map((i) => {
+      const pr = byId[parseInt(i.product_id, 10)];
+      const list = pr ? (Number(pr.sale_price) > 0 ? Number(pr.sale_price) : Number(pr.price)) : 0;
+      return {
+        product_id: pr ? pr.id : null,
+        name: (pr && pr.name) || String(i.name || 'Item'),
+        size: i.size || null,
+        qty: Math.max(1, Math.min(50, parseInt(i.qty, 10) || 1)),
+        price: i.price != null && i.price !== '' ? Number(i.price) : list,
+      };
+    });
+    const subtotal = priced.reduce((s, i) => s + i.price * i.qty, 0);
+    const discount = Math.max(0, parseInt(b.discount_amount, 10) || 0);
+    const total = Math.max(0, subtotal - discount);
+    const status = STATUSES.includes(b.status) ? b.status : 'confirmed';
+    const t = now();
+    const r = await db
+      .prepare(
+        `INSERT INTO orders (customer_name, phone, address, city, items_json, total, discount_amount,
+                             status, admin_note, source, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(String(b.name).trim(), phone, String(b.address).trim(), String(b.city).trim(),
+            JSON.stringify(priced), total, discount, status, b.note || null, b.source || 'app', t, t)
       .run();
+    const stock = priced.filter((i) => i.product_id).map((i) =>
+      db.prepare('UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ? AND stock IS NOT NULL').bind(i.qty, i.product_id)
+    );
+    if (stock.length) { try { await db.batch(stock); } catch (e) {} }
+    return json({ ok: true, id: r.meta && r.meta.last_row_id, total });
+  }
+
+  if (p === '/api/admin/app/orders/bulk' && m === 'POST') {
+    const b = await request.json();
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map((x) => parseInt(x, 10)).filter(Boolean).slice(0, 300);
+    if (!ids.length) return json({ error: 'no orders' }, 400);
+    const s = orderSets(b);
+    if (s.error) return json({ error: s.error }, 400);
+    await db
+      .prepare(`UPDATE orders SET ${s.sets.join(', ')} WHERE id IN (${ids.map(() => '?').join(',')})`)
+      .bind(...s.vals, ...ids)
+      .run();
+    return json({ ok: true, updated: ids.length });
+  }
+
+  mm = p.match(/^\/api\/admin\/orders\/(\d+)$/);
+  if (mm && m === 'PATCH') {
+    const s = orderSets(await request.json());
+    if (s.error) return json({ error: s.error }, 400);
+    await db.prepare(`UPDATE orders SET ${s.sets.join(', ')} WHERE id = ?`).bind(...s.vals, mm[1]).run();
     return json({ ok: true });
   }
 
-  // POST /api/admin/orders/:id/whatsapp   { template }
   mm = p.match(/^\/api\/admin\/orders\/(\d+)\/whatsapp$/);
   if (mm && m === 'POST') {
     const body = await request.json();
     const t = now();
-    await db
-      .prepare('INSERT INTO wa_messages (order_id, direction, body, created_at) VALUES (?, ?, ?, ?)')
-      .bind(mm[1], 'out', body.template || '', t)
-      .run();
-    await db
-      .prepare(
-        `UPDATE ${ORDERS} SET ${COL.wa_status} = 'sent', ${COL.wa_last_sent} = ?, ${COL.updated_at} = ? WHERE ${COL.id} = ?`
-      )
-      .bind(t, t, mm[1])
-      .run();
+    await db.batch([
+      db.prepare('INSERT INTO wa_messages (order_id, direction, body, created_at) VALUES (?, ?, ?, ?)')
+        .bind(mm[1], 'out', body.template || '', t),
+      db.prepare("UPDATE orders SET wa_status = 'sent', wa_last_sent = ?, updated_at = ? WHERE id = ? AND COALESCE(wa_status, 'none') IN ('none', 'sent')")
+        .bind(t, t, mm[1]),
+    ]);
     return json({ ok: true });
   }
 
-  // GET /api/admin/stats?range=today|7d|30d
   if (p === '/api/admin/stats' && m === 'GET') {
-    const range = url.searchParams.get('range') || 'today';
-    const days = range === '30d' ? 30 : range === '7d' ? 7 : 1;
-    const from = `-${days} days`;
-
-    const agg = await db
-      .prepare(
-        `SELECT COALESCE(SUM(${COL.total}),0) AS sales,
-                COUNT(*) AS orders,
-                COALESCE(SUM(${COL.total}),0) AS cod,
-                COUNT(*) AS cod_count,
-                SUM(CASE WHEN ${COL.status} = 'returned' THEN 1 ELSE 0 END) AS returned
-         FROM ${ORDERS} WHERE ${COL.created_at} >= datetime('now', ?)`
-      )
-      .bind(from)
-      .first();
-
-    const daily = await db
-      .prepare(
-        `SELECT date(${COL.created_at}) AS d, COALESCE(SUM(${COL.total}),0) AS v
-         FROM ${ORDERS} WHERE ${COL.created_at} >= datetime('now', ?)
-         GROUP BY d ORDER BY d`
-      )
-      .bind(from)
-      .all();
-
-    const rate = agg.orders ? `${Math.round((agg.returned * 100) / agg.orders)}%` : '-';
-    return json({
-      sales: agg.sales,
-      orders: agg.orders,
-      cod: agg.cod,
-      cod_count: agg.cod_count,
-      return_rate: rate,
-      series: (daily.results || []).map((r) => r.v),
-    });
+    const days = rangeDays(url.searchParams.get('range') || '1');
+    const [agg, daily] = await db.batch(statsQueries(db, days));
+    return json(statsJson((agg.results || [])[0], daily.results, days));
   }
 
-  // GET /api/admin/products?limit=200
+  // ── blocklist ──────────────────────────────────────────────────────────
+  if (p === '/api/admin/app/blocked' && m === 'GET') {
+    const { results } = await db.prepare('SELECT phone, reason, created_at FROM blocked_phones ORDER BY created_at DESC').all();
+    return json({ blocked: results || [] });
+  }
+  if (p === '/api/admin/app/blocked' && m === 'POST') {
+    const b = await request.json();
+    const phone = normalisePhone(b.phone);
+    if (!phone) return json({ error: 'Not a valid mobile number' }, 400);
+    await db.prepare('INSERT OR REPLACE INTO blocked_phones (phone, reason, created_at) VALUES (?, ?, ?)')
+      .bind(phone, b.reason || null, now()).run();
+    return json({ ok: true, phone });
+  }
+  mm = p.match(/^\/api\/admin\/app\/blocked\/([0-9]+)$/);
+  if (mm && m === 'DELETE') {
+    await db.prepare('DELETE FROM blocked_phones WHERE phone = ?').bind(normalisePhone(mm[1]) || mm[1]).run();
+    return json({ ok: true });
+  }
+
+  // ── reviews ────────────────────────────────────────────────────────────
+  if (p === '/api/admin/app/reviews' && m === 'GET') {
+    const { results } = await db.prepare(
+      `SELECT r.id, r.product_id, r.customer_name, r.city, r.rating, r.body, r.is_approved, r.created_at,
+              p.name AS product_name
+       FROM reviews r LEFT JOIN products p ON p.id = r.product_id
+       ORDER BY r.is_approved ASC, r.id DESC LIMIT 200`
+    ).all();
+    return json({ reviews: results || [] });
+  }
+  mm = p.match(/^\/api\/admin\/app\/reviews\/(\d+)$/);
+  if (mm && m === 'PATCH') {
+    const b = await request.json();
+    await db.prepare('UPDATE reviews SET is_approved = ? WHERE id = ?').bind(b.is_approved ? 1 : 0, mm[1]).run();
+    return json({ ok: true });
+  }
+  if (mm && m === 'DELETE') {
+    await db.prepare('DELETE FROM reviews WHERE id = ?').bind(mm[1]).run();
+    return json({ ok: true });
+  }
+
+  // ── products ───────────────────────────────────────────────────────────
   if (p === '/api/admin/products' && m === 'GET') {
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10), 500);
-    const { results } = await db
-      .prepare(
-        `SELECT ${PCOL.id} AS id, ${PCOL.name} AS name, ${PCOL.fabric} AS fabric,
-                ${PCOL.price} AS price, ${PCOL.sale_price} AS sale_price,
-                ${PCOL.stock} AS stock, ${PCOL.active} AS active, ${PCOL.image} AS image_url
-         FROM ${PRODUCTS} ORDER BY ${PCOL.id} DESC LIMIT ?`
-      )
-      .bind(limit)
-      .all();
+    const { results } = await db.prepare(`${PRODUCT_SELECT} ORDER BY id DESC LIMIT ?`).bind(limit).all();
     return json({ products: results || [] });
   }
 
-  // PATCH /api/admin/products/:id   { stock?, price?, sale_price?, active? }
   mm = p.match(/^\/api\/admin\/products\/(\d+)$/);
   if (mm && m === 'PATCH') {
     const body = await request.json();
+    const cols = { stock: 'stock', price: 'price', sale_price: 'sale_price', active: 'is_active', name: 'name', fabric: 'fabric', image: 'image_url', description: 'description' };
     const sets = [];
     const vals = [];
-    for (const k of ['stock', 'price', 'sale_price', 'active', 'name', 'fabric', 'image']) {
-      if (body[k] !== undefined) {
-        sets.push(`${PCOL[k]} = ?`);
-        vals.push(body[k]);
-      }
+    for (const k of Object.keys(cols)) {
+      if (body[k] !== undefined) { sets.push(`${cols[k]} = ?`); vals.push(body[k]); }
     }
-    if (body.description !== undefined) { sets.push('description = ?'); vals.push(body.description); }
     if (body.image !== undefined) {
       sets.push('images_json = ?');
       vals.push(body.image ? JSON.stringify([body.image]) : null);
     }
     if (!sets.length) return json({ error: 'nothing to update' }, 400);
-    vals.push(mm[1]);
-    await db.prepare(`UPDATE ${PRODUCTS} SET ${sets.join(', ')} WHERE ${PCOL.id} = ?`).bind(...vals).run();
+    await db.prepare(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, mm[1]).run();
     return json({ ok: true });
   }
 
-  // POST /api/admin/app/upload   multipart form, field "files"
-  // The site's own /api/admin/upload is Basic-auth only, so the app gets its own path
-  // into the same R2 bucket. Returns { urls: ["/uploads/..."] }.
+  if (mm && m === 'DELETE') {
+    await db.prepare('DELETE FROM products WHERE id = ?').bind(mm[1]).run();
+    return json({ ok: true });
+  }
+
+  if (p === '/api/admin/products' && m === 'POST') {
+    const b = await request.json();
+    if (!b.name) return json({ error: 'name required' }, 400);
+    const slug = String(b.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      + '-' + Math.random().toString(36).slice(2, 6);
+    const r = await db
+      .prepare(
+        `INSERT INTO products (name, slug, fabric, description, price, sale_price, stock, image_url,
+             images_json, is_active, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM products), datetime('now'))`
+      )
+      .bind(
+        b.name, slug, b.fabric || null, b.description || null, b.price || 0,
+        b.sale_price || null, b.stock || 0, b.image || '',
+        b.image ? JSON.stringify([b.image]) : null,
+        b.active === 0 ? 0 : 1
+      )
+      .run();
+    return json({ ok: true, id: r.meta && r.meta.last_row_id, slug });
+  }
+
   if (p === '/api/admin/app/upload' && m === 'POST') {
     if (!env.IMAGES) return json({ error: 'R2 binding "IMAGES" missing' }, 500);
     const form = await request.formData();
-    const files = form.getAll('files');
     const urls = [];
-    for (const f of files) {
+    for (const f of form.getAll('files')) {
       if (!f || typeof f === 'string') continue;
       const raw = (f.name || '').split('.').pop().toLowerCase();
       const ext = /^[a-z0-9]{2,5}$/.test(raw) ? raw : 'jpg';
       const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       await env.IMAGES.put(key, await f.arrayBuffer(), {
-        httpMetadata: { contentType: f.type || 'image/jpeg' },
+        httpMetadata: { contentType: f.type || 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' },
       });
       urls.push('/' + key);
     }
@@ -237,11 +427,14 @@ export async function handleAdmin(request, env) {
     return json({ ok: true, urls });
   }
 
-  // ── discounts ────────────────────────────────────────────────────────────
+  if (p === '/api/admin/app/fabrics' && m === 'GET') {
+    const { results } = await db.prepare('SELECT name FROM fabric_categories ORDER BY sort_order ASC').all();
+    return json({ fabrics: (results || []).map((r) => r.name) });
+  }
+
+  // ── discounts ──────────────────────────────────────────────────────────
   if (p === '/api/admin/app/discounts' && m === 'GET') {
-    const { results } = await db
-      .prepare('SELECT * FROM discounts ORDER BY is_active DESC, id DESC')
-      .all();
+    const { results } = await db.prepare('SELECT * FROM discounts ORDER BY is_active DESC, id DESC').all();
     return json({ discounts: results || [] });
   }
 
@@ -272,27 +465,22 @@ export async function handleAdmin(request, env) {
     const b = await request.json();
     const sets = [];
     const vals = [];
-    for (const k of ['code', 'title', 'type', 'value', 'min_cart_value',
-                     'usage_limit', 'start_date', 'end_date', 'is_active',
-                     'buy_quantity', 'get_quantity', 'get_discount_percent']) {
+    for (const k of ['code', 'title', 'type', 'value', 'min_cart_value', 'usage_limit', 'start_date',
+                     'end_date', 'is_active', 'buy_quantity', 'get_quantity', 'get_discount_percent']) {
       if (b[k] !== undefined) { sets.push(k + ' = ?'); vals.push(b[k]); }
     }
     if (!sets.length) return json({ error: 'nothing to update' }, 400);
-    vals.push(mm[1]);
-    await db.prepare(`UPDATE discounts SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+    await db.prepare(`UPDATE discounts SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, mm[1]).run();
     return json({ ok: true });
   }
-
   if (mm && m === 'DELETE') {
     await db.prepare('DELETE FROM discounts WHERE id = ?').bind(mm[1]).run();
     return json({ ok: true });
   }
 
-  // ── banners ──────────────────────────────────────────────────────────────
+  // ── banners ────────────────────────────────────────────────────────────
   if (p === '/api/admin/app/banners' && m === 'GET') {
-    const { results } = await db
-      .prepare('SELECT * FROM banners ORDER BY sort_order ASC, id ASC')
-      .all();
+    const { results } = await db.prepare('SELECT * FROM banners ORDER BY sort_order ASC, id ASC').all();
     return json({ banners: results || [] });
   }
 
@@ -304,10 +492,8 @@ export async function handleAdmin(request, env) {
         `INSERT INTO banners (eyebrow, heading, subheading, button_text, button_link, image_url, sort_order)
          VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM banners))`
       )
-      .bind(
-        b.eyebrow || null, b.heading, b.subheading || null,
-        b.button_text || null, b.button_link || null, b.image_url || null
-      )
+      .bind(b.eyebrow || null, b.heading, b.subheading || null, b.button_text || null,
+            b.button_link || null, b.image_url || null)
       .run();
     return json({ ok: true, id: r.meta && r.meta.last_row_id });
   }
@@ -317,109 +503,79 @@ export async function handleAdmin(request, env) {
     const b = await request.json();
     const sets = [];
     const vals = [];
-    for (const k of ['eyebrow', 'heading', 'subheading', 'button_text',
-                     'button_link', 'image_url', 'sort_order', 'is_active']) {
+    for (const k of ['eyebrow', 'heading', 'subheading', 'button_text', 'button_link', 'image_url', 'sort_order', 'is_active']) {
       if (b[k] !== undefined) { sets.push(k + ' = ?'); vals.push(b[k]); }
     }
     if (!sets.length) return json({ error: 'nothing to update' }, 400);
-    vals.push(mm[1]);
-    await db.prepare(`UPDATE banners SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+    await db.prepare(`UPDATE banners SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, mm[1]).run();
     return json({ ok: true });
   }
-
   if (mm && m === 'DELETE') {
     await db.prepare('DELETE FROM banners WHERE id = ?').bind(mm[1]).run();
     return json({ ok: true });
   }
 
-  // GET /api/admin/app/fabrics - for the product editor's fabric picker
-  if (p === '/api/admin/app/fabrics' && m === 'GET') {
-    const { results } = await db
-      .prepare('SELECT name FROM fabric_categories ORDER BY sort_order ASC')
-      .all();
-    return json({ fabrics: (results || []).map((r) => r.name) });
-  }
-
-  // POST /api/admin/products   { name, fabric, price, sale_price, stock, image, active }
-  if (p === '/api/admin/products' && m === 'POST') {
-    const b = await request.json();
-    if (!b.name) return json({ error: 'name required' }, 400);
-    const slug = String(b.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-      + '-' + Math.random().toString(36).slice(2, 6);
-    const r = await db
-      .prepare(
-        `INSERT INTO ${PRODUCTS} (${PCOL.name}, slug, ${PCOL.fabric}, description, ${PCOL.price},
-             ${PCOL.sale_price}, ${PCOL.stock}, ${PCOL.image}, images_json, ${PCOL.active},
-             sort_order, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-             (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM ${PRODUCTS}), datetime('now'))`
-      )
-      .bind(
-        b.name, slug, b.fabric || null, b.description || null, b.price || 0,
-        b.sale_price || null, b.stock || 0, b.image || '',
-        b.image ? JSON.stringify([b.image]) : null,
-        b.active === 0 ? 0 : 1
-      )
-      .run();
-    return json({ ok: true, id: r.meta && r.meta.last_row_id, slug });
-  }
-
-  // DELETE /api/admin/products/:id
-  mm = p.match(/^\/api\/admin\/products\/(\d+)$/);
-  if (mm && m === 'DELETE') {
-    await db.prepare(`DELETE FROM ${PRODUCTS} WHERE ${PCOL.id} = ?`).bind(mm[1]).run();
-    return json({ ok: true });
-  }
-
-  // POST /api/admin/courier/postex   { orderId }
+  // ── PostEx ─────────────────────────────────────────────────────────────
   if (p === '/api/admin/courier/postex' && m === 'POST') {
     const { orderId } = await request.json();
-    const o = await db.prepare(`${orderSelect} WHERE ${COL.id} = ?`).bind(orderId).first();
+    const o = await db.prepare(`${ORDER_SELECT} WHERE id = ?`).bind(orderId).first();
     if (!o) return json({ ok: false, reason: 'order not found' }, 404);
-    if (!env.POSTEX_TOKEN) return json({ ok: false, reason: 'POSTEX_TOKEN secret not set' }, 500);
+    const { token, pickup } = await postexCreds(db, env);
+    if (!token) return json({ ok: false, reason: 'PostEx token not set (Worker secret or admin settings)' }, 200);
+
+    let items = [];
+    try { items = JSON.parse(o.items || '[]'); } catch (e) {}
+    const detail = items.map((i) => `${i.name}${i.size ? ' (' + i.size + ')' : ''} x${i.qty}`).join(', ');
 
     const res = await fetch('https://api.postex.pk/services/integration/api/order/v3/create-order', {
       method: 'POST',
-      headers: { token: env.POSTEX_TOKEN, 'content-type': 'application/json' },
+      headers: { token, 'content-type': 'application/json' },
       body: JSON.stringify({
         cityName: o.city,
         customerName: o.name,
         customerPhone: o.phone,
         deliveryAddress: o.address,
         invoicePayment: o.total,
-        orderDetail: `Order #${o.id}`,
+        orderDetail: detail || `Order #${o.id}`,
         orderRefNumber: String(o.id),
         orderType: 'Normal',
-        transactionNotes: '',
-        items: 1,
-        pickupAddressCode: env.POSTEX_PICKUP_ADDRESS_CODE || '001',
+        transactionNotes: o.admin_note || '',
+        items: Math.max(1, items.reduce((s, i) => s + (parseInt(i.qty, 10) || 1), 0)),
+        pickupAddressCode: pickup,
       }),
     });
     const data = await res.json().catch(() => ({}));
-    const cn = data?.dist?.trackingNumber || data?.trackingNumber;
+    const cn = (data && data.dist && data.dist.trackingNumber) || (data && data.trackingNumber);
     if (!res.ok || !cn) {
-      return json({ ok: false, reason: data?.statusMessage || `PostEx ${res.status}` }, 200);
+      return json({ ok: false, reason: (data && data.statusMessage) || `PostEx ${res.status}` }, 200);
     }
     const t = now();
     await db
       .prepare(
-        `UPDATE ${ORDERS} SET ${COL.courier} = 'PostEx', ${COL.tracking} = ?, ${COL.status} = 'shipped', ${COL.updated_at} = ? WHERE ${COL.id} = ?`
+        `UPDATE orders SET courier = 'PostEx', tracking = ?, postex_tracking = ?, postex_booked_at = ?,
+                           status = 'shipped', updated_at = ? WHERE id = ?`
       )
-      .bind(cn, t, o.id)
+      .bind(cn, cn, t, t, o.id)
       .run();
     return json({ ok: true, tracking: cn });
   }
 
-  // GET /api/admin/courier/postex/track/:cn
   mm = p.match(/^\/api\/admin\/courier\/postex\/track\/(.+)$/);
   if (mm && m === 'GET') {
+    const { token } = await postexCreds(db, env);
     const res = await fetch(
-      `https://api.postex.pk/services/integration/api/order/v1/track-order/${mm[1]}`,
-      { headers: { token: env.POSTEX_TOKEN || '' } }
+      `https://api.postex.pk/services/integration/api/order/v1/track-order/${encodeURIComponent(mm[1])}`,
+      { headers: { token: token || '' } }
     );
-    return json(await res.json().catch(() => ({ ok: false })), res.status);
+    const data = await res.json().catch(() => ({}));
+    const d = (data && data.dist) || data || {};
+    const status = d.transactionStatus || d.orderStatus || d.status || '';
+    if (status) {
+      await db.prepare('UPDATE orders SET postex_status = ?, updated_at = ? WHERE tracking = ? OR postex_tracking = ?')
+        .bind(status, now(), mm[1], mm[1]).run();
+    }
+    return json({ ok: res.ok, status, raw: data }, 200);
   }
 
-  // A path we do not implement - let the existing website handle it.
   return null;
 }

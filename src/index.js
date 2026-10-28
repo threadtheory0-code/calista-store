@@ -2052,6 +2052,14 @@ export default {
         if (!cleanPhone) {
           return json({ error: 'Please enter a valid Pakistani mobile number, e.g. 0300 1234567' }, 400);
         }
+        // Numbers blocked from the merchant app (repeat fake / refused orders).
+        try {
+          const blocked = await env.DB.prepare('SELECT 1 FROM blocked_phones WHERE phone = ?').bind(cleanPhone).first();
+          if (blocked) {
+            return json({ error: 'We could not place this order online. Please message us on WhatsApp to order.' }, 400);
+          }
+        } catch (e) { /* table appears on the app's first sync */ }
+
         if (String(address).trim().length < 10) {
           return json({ error: 'Please enter a complete address so the courier can find you' }, 400);
         }
